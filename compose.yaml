@@ -1,10 +1,27 @@
+x-app: &app
+  image: ai-content-factory-local
+  pull_policy: never
+
+x-database-env: &database-env
+  DATABASE_URL: postgresql+psycopg://factory:${POSTGRES_PASSWORD:-factory-local-demo}@db:5432/factory
+
+x-worker: &worker
+  <<: *app
+  restart: unless-stopped
+  depends_on:
+    api:
+      condition: service_healthy
+  environment:
+    WORKER_API_URL: http://api:8080
+    WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN:-factory-local-worker}
+
 services:
   db:
     image: postgres:16
     environment:
       POSTGRES_DB: factory
       POSTGRES_USER: factory
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local database password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-factory-local-demo}
     ports:
       - "127.0.0.1:55432:5432"
     volumes:
@@ -14,5 +31,54 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+
+  migrate:
+    <<: *app
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    environment: *database-env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      <<: *database-env
+      OPERATOR_TOKEN: ${OPERATOR_TOKEN:-factory-local-operator}
+      WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN:-factory-local-worker}
+    volumes:
+      - ./data/shared:/app/data/shared
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/v1/health/ready', timeout=3).close()"]
+      interval: 3s
+      timeout: 4s
+      retries: 20
+
+  worker-a:
+    <<: *worker
+    command: ["python", "-m", "factory.generator", "--id", "compose-worker-a"]
+
+  worker-b:
+    <<: *worker
+    command: ["python", "-m", "factory.generator", "--id", "compose-worker-b"]
+
+  publisher:
+    <<: *app
+    command: ["python", "-m", "factory.publisher"]
+    restart: unless-stopped
+    environment: *database-env
+    volumes:
+      - ./data/shared:/app/data/shared:ro
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   factory-db:

@@ -2,16 +2,45 @@
 
 Local mock build for STORY, CLIPS and CARTOON_2D. FFmpeg creates playable vertical MP4s. The model, narration tones, shared archive and publishing run locally. Social actions are simulations.
 
-## PowerShell quickstart
+## Docker Compose quickstart
 
-Use Python 3.13.17 and Docker Desktop with Linux containers. From the repository root:
+Start Docker Desktop with Linux containers. From the repository root:
+
+```powershell
+docker compose up --build -d --wait
+```
+
+Compose starts PostgreSQL, applies migrations, and starts the API, two Generator
+workers, and MockPublisher. The first build downloads the base images and dependencies.
+
+1. Open [the operator dashboard](http://127.0.0.1:8080/operator).
+2. Enter `factory-local-operator` in **Operator token** and click **Submit batch**
+   to send the prefilled STORY example.
+3. Click **Review packages** after the worker finishes, then select the package to
+   preview the MP4. **Workers** shows both Generators. **Scheduled and published**
+   shows the mock publication targets.
+
+Use `docker compose logs -f api worker-a worker-b publisher` to follow the services
+and `docker compose down` to stop them while keeping PostgreSQL data and the media
+under `data/shared`.
+
+The included credentials are for local mock development. Both published ports
+bind to localhost. Set `OPERATOR_TOKEN`, `WORKER_AUTH_TOKEN`, and
+`POSTGRES_PASSWORD` in the environment if you need different local credentials.
+Use a URL-safe database password. Changing it in Compose does not rotate an
+existing PostgreSQL role password.
+
+
+## Run Python on the host
+
+For host-side development, stop the full Compose stack first if it is running. Use Python 3.13.17 and Docker Desktop with Linux containers. From the repository root:
 
 ```powershell
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock
 $env:POSTGRES_PASSWORD = [guid]::NewGuid().ToString('N')
 $env:DATABASE_URL = "postgresql+psycopg://factory:$env:POSTGRES_PASSWORD@127.0.0.1:55432/factory"
-docker compose up -d --wait
+docker compose up -d --wait db
 .\scripts\demo.ps1 -Recovery
 ```
 
