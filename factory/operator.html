@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Content Factory · Mock operator</title>
+<style>
+body{font:1rem system-ui;max-width:960px;margin:2rem auto;padding:0 1rem;background:#132433;color:#eef7ff}
+section{background:#1d3548;padding:1rem;margin:1rem 0;border-radius:12px}
+input,textarea,button{font:inherit;margin:.3rem;padding:.4rem}textarea{width:95%}
+pre{white-space:pre-wrap;overflow-wrap:anywhere}video{max-height:380px;width:100%}
+</style>
+<h1>AI Content Factory · Mock operator</h1>
+<label>Operator token <input type="password" id="token" autocomplete="off"></label>
+<section><h2>Submit jobs</h2><label for="jobs">Job array as JSON</label>
+<textarea id="jobs" rows="5">[{"mode":"STORY","prompt":"An original short story.","rights":"original","evidence":"Written by me"}]</textarea>
+<button id="submit">Submit batch</button></section>
+<section><h2>Inspect</h2><label>Batch or job ID <input id="entity"></label>
+<button data-get="batches">Batch</button><button data-get="jobs">Job</button>
+<button data-get="workers">Workers</button><button data-get="platform-accounts">Accounts</button>
+<button data-get="publication-targets">Scheduled and published</button>
+<button id="packages">Review packages</button><div id="previews"></div></section>
+<section><h2>Approve and schedule mock targets</h2>
+<label for="approval">Reviewed targets with account, caption and UTC schedule as JSON</label>
+<textarea id="approval" rows="6">[]</textarea><button id="approve">Approve batch</button></section>
+<pre id="result" role="status" aria-live="polite"></pre>
+<script>
+const el = id => document.getElementById(id);
+async function api(path, body) {
+  const response = await fetch('/api/v1/' + path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: {Authorization: el('token').value, 'Content-Type': 'application/json'},
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  if (!response.ok) throw Error(await response.text());
+  return response;
+}
+function action(button, fn) {
+  button.onclick = async () => {
+    try { el('result').textContent = JSON.stringify(await fn(), null, 2); }
+    catch (error) { el('result').textContent = error.message; }
+  };
+}
+action(el('submit'), async () => (await api('batches', {jobs: JSON.parse(el('jobs').value)})).json());
+action(el('approve'), async () => (await api('publication-batches', {targets: JSON.parse(el('approval').value)})).json());
+for (const button of document.querySelectorAll('[data-get]')) {
+  action(button, async () => {
+    let path = button.dataset.get;
+    if (['batches', 'jobs'].includes(path)) path += '/' + encodeURIComponent(el('entity').value);
+    return (await api(path)).json();
+  });
+}
+let previewUrl;
+action(el('packages'), async () => {
+  const packages = await (await api('packages')).json();
+  el('previews').replaceChildren();
+  for (const item of packages) {
+    for (const [index, part] of item.parts.entries()) {
+      const button = document.createElement('button');
+      button.textContent = item.job + ' / part ' + (index + 1);
+      el('previews').append(button);
+      action(button, async () => {
+        const data = await (await api('artifacts/' + part.sha256 + '/download')).arrayBuffer();
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(new Blob([data], {type:'video/mp4'}));
+        el('previews').querySelector('video')?.remove();
+        const video = document.createElement('video');
+        video.src = previewUrl;
+        video.controls = true;
+        el('previews').append(video);
+        return item;
+      });
+    }
+  }
+  return packages;
+});
+</script>

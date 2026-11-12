@@ -1,0 +1,1 @@
+Choose nonempty fixture spans from existing evidence and preserve source timecodes.
