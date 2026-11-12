@@ -8,3 +8,4 @@ data/
 .ruff_cache/
 .mypy_cache/
 .coverage
+client_secret*.json

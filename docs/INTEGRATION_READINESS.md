@@ -1,11 +1,11 @@
 # Integration readiness
 
-The mock run needs no external credentials. All live adapters below require separate implementation and approval. Store eventual credentials outside the repository. Recheck official requirements before live verification.
+The mock run needs no external credentials. Google Drive has an opt-in adapter. The other live integrations below require separate implementation and approval. Store eventual credentials outside the repository. Recheck official requirements before live verification.
 
 | Integration | Owner input and purpose | Configuration and verification | Current behavior and limitation |
 |---|---|---|---|
 | OpenAI GPT | Project/key, approved structured-output and multimodal model IDs, spend and retention policies | Secret store and provider configuration. Verify with one approved schema-constrained call under the cap | MockGPT plans deterministically. No cloud calls |
-| Google Drive | OAuth app, consent configuration, authorized folder and scope, quota and retention | Secret store and archive configuration. Verify upload, download and checksum with least-privilege access | Local shared directory. No Google Drive upload |
+| Google Drive | Desktop OAuth client and owner consent | [Google Drive setup](GOOGLE_DRIVE.md). Verify the first archive receipt in the operator page | Optional Drive API v3 archive with drive.file. Local archive remains the source of truth. Google calls are mocked in tests |
 | YouTube | OAuth project, channel consent, upload scope, quota, visibility and disclosure defaults | Per-account secret reference. Verify an approved private or unlisted test where supported | Mock receipt only |
 | TikTok | Registered app, redirect URI, creator consent, approved publishing scope, account and transfer method | Per-account secret reference and optional verified HTTPS origin. Verify creator settings, test upload and status | Mock receipt only |
 | Instagram | Meta app, professional account, login route, account ID, permissions and media hosting | Per-account secret reference. Verify approved media container lifecycle and publish status | Mock receipt only |

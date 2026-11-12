@@ -28,6 +28,10 @@ def path_for(key: str) -> Path:
 
 def verified(key: str) -> Path:
     path = path_for(key)
-    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != key:
+    if not path.is_file():
+        raise ValueError("Missing or corrupt artifact")
+    with path.open("rb") as handle:
+        actual = hashlib.file_digest(handle, "sha256").hexdigest()
+    if actual != key:
         raise ValueError("Missing or corrupt artifact")
     return path

@@ -80,5 +80,27 @@ services:
       api:
         condition: service_healthy
 
+  drive:
+    <<: *app
+    profiles: ["drive"]
+    command: ["python", "-m", "factory.drive_worker"]
+    restart: unless-stopped
+    environment:
+      <<: *database-env
+      DRIVE_OAUTH_CLIENT_FILE: /run/drive-secrets/client.json
+      DRIVE_OAUTH_TOKEN_FILE: /run/drive-secrets/token.json
+      DRIVE_FILENAME_TEMPLATE: "${DRIVE_FILENAME_TEMPLATE:-}"
+    volumes:
+      - ./data/shared:/app/data/shared:ro
+      - type: bind
+        source: ${DRIVE_SECRETS_DIR:-./data/drive-secrets}
+        target: /run/drive-secrets
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   factory-db:

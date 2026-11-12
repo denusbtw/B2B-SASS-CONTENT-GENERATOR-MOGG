@@ -31,6 +31,8 @@ Use a URL-safe database password. Changing it in Compose does not rotate an
 existing PostgreSQL role password.
 
 
+Optional: connect a personal Google Drive and archive completed MP4s automatically. [Google Drive setup](docs/GOOGLE_DRIVE.md)
+
 ## Run Python on the host
 
 For host-side development, stop the full Compose stack first if it is running. Use Python 3.13.17 and Docker Desktop with Linux containers. From the repository root:

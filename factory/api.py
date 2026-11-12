@@ -268,6 +268,13 @@ def publication_targets():
     return ledger.list_rows(targets)
 
 
+@router.get("/drive/uploads", dependencies=[Depends(operator)])
+def drive_uploads():
+    from factory.drive_worker import uploads
+
+    return ledger.list_rows(uploads)
+
+
 def mount(app):
     app.include_router(router)
 
