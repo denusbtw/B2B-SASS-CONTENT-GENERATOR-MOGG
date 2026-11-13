@@ -306,6 +306,22 @@ class Ledger:
     def approve(self, snapshots):
         revision = uid()
         with self.write() as db:
+            for job_id in sorted({snap["job"] for snap in snapshots if "job" in snap}):
+                package = db.execute(
+                    self.lock(
+                        select(stages.c.result).where(
+                            stages.c.job == job_id,
+                            stages.c.name == "package",
+                            stages.c.state == "SUCCEEDED",
+                        )
+                    )
+                ).scalar_one_or_none()
+                if package is None or any(
+                    package["parts"][snap["part"] - 1].get("deleted")
+                    for snap in snapshots
+                    if snap["job"] == job_id
+                ):
+                    raise Conflict("Video no longer available")
             for snap in snapshots:
                 key = digest([snap["account"], snap["sha256"], snap["scheduled_at"]])
                 from sqlalchemy.dialects.postgresql import insert as pg_insert

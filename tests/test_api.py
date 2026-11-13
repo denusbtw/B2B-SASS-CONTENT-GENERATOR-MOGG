@@ -75,3 +75,63 @@ def test_dashboard_and_path_guard(client):
     assert 'id="create"' in response.text
     assert 'data-view="library"' in response.text
     assert client.get("/api/v1/artifacts/bad-hash/download").status_code == 404
+
+
+def test_remove_library_video_cancels_only_its_work(client, monkeypatch, tmp_path):
+    from factory import storage
+    from factory.db import now, targets
+    from factory.drive_worker import archive_next, discover, drive_metadata, uploads
+
+    ledger = api.ledger
+    drive_metadata.create_all(ledger.engine)
+    monkeypatch.setattr(storage, "ROOT", tmp_path / "archive")
+    first = storage.put(b"first video")
+    second = storage.put(b"second video")
+    _, [job] = ledger.submit([{"mode": "STORY"}])
+    for result in (
+        {},
+        {},
+        {},
+        {
+            "parts": [{"sha256": first}, {"sha256": second}],
+            "publishable": True,
+            "manifest_hash": "example",
+        },
+    ):
+        claim = ledger.claim("test")
+        ledger.finish(claim["id"], "test", claim["token"], result=result)
+    discover(ledger)
+    schedule = {
+        "job": job,
+        "part": 1,
+        "account": "mock-youtube-a",
+        "caption": "Example",
+        "scheduled_at": now().isoformat(),
+    }
+    assert (
+        client.post(
+            "/api/v1/publication-batches", json={"targets": [schedule]}
+        ).status_code
+        == 201
+    )
+
+    path = f"/api/v1/packages/{job}/1"
+    assert (
+        client.delete(path, headers={"Authorization": "test-worker"}).status_code == 401
+    )
+    assert client.delete(path).json() == {"deleted": True}
+    assert client.delete(path).json() == {"deleted": True}
+    [package] = client.get("/api/v1/packages").json()
+    assert package["parts"][0]["deleted"]
+    assert not package["parts"][1].get("deleted")
+    assert (
+        client.post(
+            "/api/v1/publication-batches", json={"targets": [schedule]}
+        ).status_code
+        == 409
+    )
+    assert ledger.list_rows(targets)[0]["state"] == "CANCELLED"
+    assert [item["sha256"] for item in ledger.list_rows(uploads)] == [second]
+    assert client.delete(f"/api/v1/packages/{job}/2").status_code == 200
+    assert client.get("/api/v1/packages").json() == []
+    assert not archive_next(ledger, None, "{part}.mp4")

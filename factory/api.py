@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
-from sqlalchemy import text
+from sqlalchemy import delete, select, text, update
 
 from factory.contracts import (
     Approval,
@@ -214,7 +214,66 @@ def packages():
         for row in ledger.list_rows(
             stages, stages.c.name == "package", stages.c.state == "SUCCEEDED"
         )
+        if any(not part.get("deleted") for part in row["result"]["parts"])
     ]
+
+
+@router.delete("/packages/{job}/{part}", dependencies=[Depends(operator)])
+def remove_video(job: UUID, part: int):
+    from factory.drive_worker import LOCK, uploads
+
+    with ledger.write() as db:
+        if (
+            ledger.postgres
+            and not db.execute(
+                text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": LOCK}
+            ).scalar_one()
+        ):
+            raise Conflict("Google Drive зайнятий. Повтори видалення за кілька секунд.")
+        package_filter = (stages.c.name == "package", stages.c.state == "SUCCEEDED")
+        row = (
+            db.execute(
+                ledger.lock(
+                    select(stages).where(*package_filter, stages.c.job == str(job))
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row is None or not 1 <= part <= len(row.result["parts"]):
+            raise HTTPException(404, "Video not found")
+        video = row.result["parts"][part - 1]
+        if video.get("deleted"):
+            return {"deleted": True}
+        video["deleted"] = True
+        db.execute(
+            update(stages).where(stages.c.id == row.id).values(result=row.result)
+        )
+        db.execute(
+            update(targets)
+            .where(
+                targets.c.snapshot["job"].as_string() == str(job),
+                targets.c.snapshot["part"].as_integer() == part,
+                targets.c.state.in_(("SCHEDULED", "RECONCILIATION_REQUIRED")),
+            )
+            .values(state="CANCELLED")
+        )
+        shared = any(
+            asset["sha256"] == video["sha256"] and not asset.get("deleted")
+            for result in db.execute(
+                select(stages.c.result).where(*package_filter)
+            ).scalars()
+            if result["publishable"]
+            for asset in result["parts"]
+        )
+        if not shared:
+            db.execute(
+                delete(uploads).where(
+                    uploads.c.sha256 == video["sha256"], uploads.c.url.is_(None)
+                )
+            )
+        ledger.event(db, str(job), "video_deleted", part=part, sha256=video["sha256"])
+    return {"deleted": True}
 
 
 @router.get("/platform-accounts", dependencies=[Depends(operator)])
@@ -244,6 +303,7 @@ def approve(body: Approval):
             not package
             or not package["publishable"]
             or target.part > len(package["parts"])
+            or package["parts"][target.part - 1].get("deleted")
         ):
             raise HTTPException(409, "Missing package, QA pass or rights evidence")
         media = package["parts"][target.part - 1]

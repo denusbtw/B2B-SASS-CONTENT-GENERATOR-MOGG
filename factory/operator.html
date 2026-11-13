@@ -84,7 +84,7 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
 "use strict";
 const el = id => document.getElementById(id);
 const modes = {STORY:"Історія", CLIPS:"Тестовий кліп", CARTOON_2D:"2D-мультфільм"};
-const status = {CREATED:"У черзі", GENERATING:"Генерується", COMPLETE:"Готово", FAILED:"Помилка", BLOCKED:"Заблоковано", REVIEW_REQUIRED:"Потребує перевірки", SUCCEEDED:"Завершено", LEASED:"У роботі", PENDING:"Очікує", READY:"У черзі", SCHEDULED:"Заплановано", RECONCILIATION_REQUIRED:"Перевіряється", PUBLISHED:"Симульовано"};
+const status = {CREATED:"У черзі", GENERATING:"Генерується", COMPLETE:"Готово", FAILED:"Помилка", BLOCKED:"Заблоковано", REVIEW_REQUIRED:"Потребує перевірки", SUCCEEDED:"Завершено", LEASED:"У роботі", PENDING:"Очікує", READY:"У черзі", SCHEDULED:"Заплановано", RECONCILIATION_REQUIRED:"Перевіряється", PUBLISHED:"Симульовано", CANCELLED:"Скасовано"};
 const stageNames = {story_plan:"План історії", clip_plan:"План кліпу", cartoon_plan:"План мультфільму", render:"Рендер", qa:"Перевірка", package:"Збірка пакета"};
 let token = "factory-local-operator";
 let current = "studio";
@@ -122,9 +122,9 @@ function time(value) {
 function platform(account) {
   return account.replace(/^mock-/, "").replace("youtube", "YouTube").replace("tiktok", "TikTok").replace("instagram", "Instagram");
 }
-async function api(path, body) {
+async function api(path, body, method = body === undefined ? "GET" : "POST") {
   const response = await fetch("/api/v1/" + path, {
-    method: body === undefined ? "GET" : "POST",
+    method,
     headers: {Authorization: token, "Content-Type": "application/json"},
     body: body === undefined ? undefined : JSON.stringify(body)
   });
@@ -292,6 +292,27 @@ async function schedule(item, part) {
   };
   body.append(form);
 }
+function confirmRemoval(item, part, title) {
+  const body = detail("Видалити відео?");
+  body.append(node("p", title), node("p",
+    "Відео зникне з бібліотеки. Заплановані публікації буде скасовано. Копія, яка вже є в Google Drive, залишиться."));
+  const actions = node("div", undefined, "actions");
+  actions.append(button("Скасувати", () => el("detail").close()),
+    button("Видалити", async () => {
+      try {
+        await api("packages/" + item.job + "/" + part, undefined, "DELETE");
+      } catch (error) {
+        const message = node("p", error.message, "bad");
+        message.setAttribute("role", "alert");
+        body.append(message);
+        return;
+      }
+      el("detail").close();
+      await renderLibrary();
+      notify("Відео видалено з бібліотеки.", "good");
+    }, "bad"));
+  body.append(actions);
+}
 async function renderLibrary() {
   const packages = await json("packages");
   const container = el("videos");
@@ -299,6 +320,7 @@ async function renderLibrary() {
   if (!packages.length) return empty(container, "Готових відео ще немає.");
   for (const item of [...packages].reverse()) {
     item.parts.forEach((part, index) => {
+      if (part.deleted) return;
       const job = jobs.get(item.job);
       const title = (job ? modes[job.spec.mode] : "Відео " + item.job.slice(0, 8)) + " · частина " + (index + 1);
       const card = node("article", undefined, "card preview-card");
@@ -312,6 +334,7 @@ async function renderLibrary() {
       const actions = node("div", undefined, "actions");
       actions.append(button("Переглянути", () => preview(part, title), "primary"));
       if (item.publishable) actions.append(button("Запланувати", () => schedule(item, index + 1)));
+      actions.append(button("Видалити", () => confirmRemoval(item, index + 1, title), "quiet"));
       body.append(actions);
       card.append(art, body);
       container.append(card);

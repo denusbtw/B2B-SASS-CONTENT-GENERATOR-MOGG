@@ -94,6 +94,8 @@ def discover(ledger) -> None:
         )
         for job_id, result in pending:
             for part, asset in enumerate(result["parts"], 1):
+                if asset.get("deleted"):
+                    continue
                 key = asset["sha256"]
                 if (
                     db.execute(
