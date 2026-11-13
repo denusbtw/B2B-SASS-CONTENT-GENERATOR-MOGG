@@ -70,5 +70,8 @@ def test_worker_role_and_approval_gate(client):
 
 
 def test_dashboard_and_path_guard(client):
-    assert "Mock operator" in client.get("/operator").text
+    response = client.get("/operator")
+    assert response.status_code == 200
+    assert 'id="create"' in response.text
+    assert 'data-view="library"' in response.text
     assert client.get("/api/v1/artifacts/bad-hash/download").status_code == 404

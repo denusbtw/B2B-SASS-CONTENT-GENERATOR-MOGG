@@ -3,7 +3,7 @@
 The optional Drive worker uploads completed MP4 packages to an app-managed folder
 named **AI Video Publisher** in the Google account you choose. The app requests
 only `https://www.googleapis.com/auth/drive.file`. It never changes Drive sharing
-permissions. The operator page's **Google Drive uploads** view shows the file ID,
+permissions. The operator page's **Google Drive** view shows the file ID,
 link, and last error. A Drive failure leaves the local video and publishing flow
 available.
 

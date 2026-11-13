@@ -1,77 +1,441 @@
 <!doctype html>
-<html lang="en">
+<html lang="uk">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Content Factory · Mock operator</title>
+<title>Відеостудія · AI Content Factory</title>
 <style>
-body{font:1rem system-ui;max-width:960px;margin:2rem auto;padding:0 1rem;background:#132433;color:#eef7ff}
-section{background:#1d3548;padding:1rem;margin:1rem 0;border-radius:12px}
-input,textarea,button{font:inherit;margin:.3rem;padding:.4rem}textarea{width:95%}
-pre{white-space:pre-wrap;overflow-wrap:anywhere}video{max-height:380px;width:100%}
+:root{color-scheme:dark;--bg:#111218;--panel:#1b1d27;--edge:#303341;--text:#f3f3fa;--muted:#afb3c8;--accent:#c5f279;--good:#c5f279;--warn:#ffd19a;--bad:#ffabb4;font-family:Inter,system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer;border:1px solid var(--edge);border-radius:9px;padding:.64rem .9rem;background:#252836}button:hover{border-color:var(--accent)}button:disabled{opacity:.55;cursor:wait}a{color:var(--accent)}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.shell{display:grid;grid-template-columns:225px minmax(0,1fr);min-height:100vh}aside{background:#171922;border-right:1px solid var(--edge);padding:1.5rem 1rem;display:flex;flex-direction:column;gap:2rem}.brand{display:flex;align-items:center;gap:.7rem;padding:.25rem .4rem;font-size:.92rem;font-weight:750}.mark{display:grid;place-items:center;width:36px;height:36px;background:var(--accent);color:#171b12;border-radius:11px;font-size:1.1rem}.nav{display:grid;gap:.4rem}.nav button{text-align:left;border-color:transparent;background:transparent;color:var(--muted)}.nav button[aria-current=page]{background:#2a2e36;color:var(--accent);border-color:var(--edge)}.connection{margin-top:auto}
+main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem}.top,.row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap}.top{margin-bottom:1.25rem;color:var(--muted);font-size:.88rem}.badge{display:inline-block;border-radius:999px;padding:.25rem .65rem;font-size:.79rem;background:#303344;color:var(--muted);white-space:nowrap}.good{color:var(--good);background:#2c3928}.warn{color:var(--warn);background:#3b302b}.bad{color:var(--bad);background:#462b35}
+.hero{background:radial-gradient(ellipse at 95% 0%,#364b33 0,transparent 67%),#242635;border:1px solid #3a4050;border-radius:20px;padding:clamp(1.3rem,4vw,2.5rem);margin-bottom:1.2rem}.hero p{margin-bottom:0}h1{font-size:clamp(2rem,5vw,3.35rem);letter-spacing:-.06em;line-height:1.05;margin:0 0 .7rem}h2{font-size:1.2rem;margin:0 0 .8rem}h3{margin:.25rem 0;font-size:1rem}p{line-height:1.55;color:var(--muted)}.panel,.card{background:var(--panel);border:1px solid var(--edge);border-radius:15px;padding:1.1rem}.grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:1rem;align-items:start}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,245px),1fr));gap:.85rem}.stack{display:grid;gap:.7rem}.field{display:grid;gap:.35rem;font-size:.87rem;font-weight:650}.muted,small{color:var(--muted)}input,select,textarea{width:100%;min-width:0;padding:.67rem .75rem;background:#12141c;border:1px solid var(--edge);border-radius:9px}textarea{resize:vertical;min-height:85px}.primary{background:var(--accent);color:#171b12;border-color:var(--accent);font-weight:750}.quiet{background:transparent}.draft{padding-top:.9rem;border-top:1px solid var(--edge)}.checkbox{display:flex;align-items:center;gap:.5rem;color:var(--muted)}input[type=checkbox]{width:auto}.two{display:grid;grid-template-columns:1fr 1fr;gap:.65rem}.empty{padding:1.1rem 0;margin:0}.list-item{border-top:1px solid var(--edge);padding:.75rem 0}.list-item p{margin:.2rem 0 .5rem;overflow-wrap:anywhere}.actions{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center}.preview-card{overflow:hidden;padding:0}.preview-art{height:100px;background:linear-gradient(125deg,#304632,#202f43 55%,#383050);display:grid;place-items:center;color:#e7f5df;font-size:1.6rem}.preview-body{padding:1rem;overflow-wrap:anywhere}.notice{padding:.8rem 1rem;border:1px solid var(--edge);border-radius:10px;margin-bottom:1rem}.notice:empty{display:none}dialog{width:min(92vw,510px);max-height:90vh;overflow:auto;color:var(--text);background:var(--panel);border:1px solid var(--edge);border-radius:16px;padding:1.2rem}dialog::backdrop{background:#080911b8}video{display:block;width:100%;max-height:62vh;background:#0c0d12;border-radius:8px}.step{display:flex;justify-content:space-between;gap:.5rem;border-bottom:1px solid var(--edge);padding:.65rem 0}.scroll-label{overflow-wrap:anywhere}
+@media(max-width:760px){.shell{display:block}aside{padding:.8rem;gap:.75rem;border-right:0;border-bottom:1px solid var(--edge)}.nav{display:flex;overflow-x:auto}.nav button{white-space:nowrap}.connection{position:absolute;right:.7rem;top:.78rem}.grid{grid-template-columns:1fr}main{padding-top:1rem}}
+@media(max-width:400px){.two{grid-template-columns:1fr}}
 </style>
-<h1>AI Content Factory · Mock operator</h1>
-<label>Operator token <input type="password" id="token" autocomplete="off"></label>
-<section><h2>Submit jobs</h2><label for="jobs">Job array as JSON</label>
-<textarea id="jobs" rows="5">[{"mode":"STORY","prompt":"An original short story.","rights":"original","evidence":"Written by me"}]</textarea>
-<button id="submit">Submit batch</button></section>
-<section><h2>Inspect</h2><label>Batch or job ID <input id="entity"></label>
-<button data-get="batches">Batch</button><button data-get="jobs">Job</button>
-<button data-get="workers">Workers</button><button data-get="platform-accounts">Accounts</button>
-<button data-get="drive/uploads">Google Drive uploads</button>
-<button data-get="publication-targets">Scheduled and published</button>
-<button id="packages">Review packages</button><div id="previews"></div></section>
-<section><h2>Approve and schedule mock targets</h2>
-<label for="approval">Reviewed targets with account, caption and UTC schedule as JSON</label>
-<textarea id="approval" rows="6">[]</textarea><button id="approve">Approve batch</button></section>
-<pre id="result" role="status" aria-live="polite"></pre>
+</head>
+<body>
+<div class="shell">
+<aside>
+  <div class="brand"><span class="mark" aria-hidden="true">▶</span> AI Content Factory</div>
+  <nav class="nav" aria-label="Розділи студії">
+    <button data-view="studio" aria-current="page">Студія</button>
+    <button data-view="library">Бібліотека</button>
+    <button data-view="publish">Публікації</button>
+    <button data-view="drive">Google Drive</button>
+    <button data-view="workers">Воркери</button>
+  </nav>
+  <button id="open-settings" class="connection quiet">Доступ</button>
+</aside>
+<main>
+  <header class="top"><span>Робочий простір</span><div class="actions"><span id="connection-status" class="badge">Перевіряємо доступ</span><span class="badge">Симуляція публікацій</span></div></header>
+  <div id="notice" class="notice" role="status" aria-live="polite"></div>
+  <section id="studio" class="view">
+    <div class="hero"><h1>Відеостудія</h1><p>Створи ролик і простеж його шлях до готового MP4.</p></div>
+    <div class="grid">
+      <form id="create" class="panel stack">
+        <h2>Нове завдання</h2>
+        <div id="drafts" class="stack"></div>
+        <div class="actions"><button id="add" type="button" class="quiet">+ Додати завдання</button><button class="primary">Запустити генерацію</button></div>
+      </form>
+      <section class="panel"><div class="row"><h2>Черга завдань</h2><button id="refresh-queue" class="quiet" type="button">Оновити</button></div>
+        <div id="queue"></div>
+        <form id="find" class="stack"><label class="field">Відкрити за ID<input id="lookup" placeholder="ID пакета або завдання" required></label>
+        <div class="actions"><button value="batches">Пакет</button><button value="jobs">Завдання</button></div></form>
+      </section>
+    </div>
+  </section>
+  <section id="library" class="view" hidden><div class="hero"><h1>Бібліотека</h1><p>Готові ролики та результати перевірки.</p></div><div id="videos" class="cards"></div></section>
+  <section id="publish" class="view" hidden><div class="hero"><h1>Публікації</h1><p>Заплановані й підтверджені симульовані публікації.</p></div><div id="targets" class="cards"></div></section>
+  <section id="drive" class="view" hidden><div class="hero"><h1>Google Drive</h1><p>Стан архівування та посилання на файли.</p></div><div id="uploads" class="cards"></div></section>
+  <section id="workers" class="view" hidden><div class="hero"><h1>Воркери</h1><p>Час останнього звернення до черги.</p></div><div id="agents" class="cards"></div></section>
+</main>
+</div>
+<dialog id="settings" aria-labelledby="settings-title">
+  <form id="connect" class="stack">
+    <div class="row"><h2 id="settings-title">Доступ до студії</h2><button type="button" data-close aria-label="Закрити">×</button></div>
+    <label class="field">Токен оператора<input type="password" id="token" autocomplete="off" required></label>
+    <p id="connect-error" role="alert" hidden></p><button class="primary">Підключити</button>
+  </form>
+</dialog>
+<dialog id="detail" aria-labelledby="detail-title">
+  <div class="row"><h2 id="detail-title"></h2><button type="button" data-close aria-label="Закрити">×</button></div>
+  <div id="detail-body"></div>
+</dialog>
+<template id="draft-template">
+  <fieldset class="draft stack" style="border-width:1px 0 0;margin:0;padding-inline:0">
+    <legend class="muted">Завдання</legend>
+    <div class="two">
+      <label class="field">Формат<select name="mode"><option value="STORY">Історія</option><option value="CLIPS">Тестовий кліп</option><option value="CARTOON_2D">2D-мультфільм</option></select></label>
+      <label class="field">Мова<select name="locale"><option value="uk">Українська</option><option value="en">English</option><option value="ru">Русский</option></select></label>
+    </div>
+    <label class="field">Текст або ідея<textarea name="prompt" required maxlength="6000" placeholder="Опиши, що має статися в ролику"></textarea></label>
+    <div class="two">
+      <label class="field">Права на матеріал<select name="rights"><option value="original">Власний матеріал</option><option value="authorized">Є дозвіл</option><option value="unknown">Невідомі</option><option value="denied">Немає дозволу</option></select></label>
+      <label class="field">Кількість частин<input name="parts" type="number" min="1" max="8" value="1" required></label>
+    </div>
+    <label class="field">Підтвердження прав<input name="evidence" maxlength="500" placeholder="Наприклад, авторський текст"></label>
+    <label class="checkbox" data-clips hidden><input name="stacked" type="checkbox"> Розділити екран</label>
+    <div><button class="quiet" type="button" data-remove>Прибрати</button></div>
+  </fieldset>
+</template>
 <script>
+"use strict";
 const el = id => document.getElementById(id);
+const modes = {STORY:"Історія", CLIPS:"Тестовий кліп", CARTOON_2D:"2D-мультфільм"};
+const status = {CREATED:"У черзі", GENERATING:"Генерується", COMPLETE:"Готово", FAILED:"Помилка", BLOCKED:"Заблоковано", REVIEW_REQUIRED:"Потребує перевірки", SUCCEEDED:"Завершено", LEASED:"У роботі", PENDING:"Очікує", READY:"У черзі", SCHEDULED:"Заплановано", RECONCILIATION_REQUIRED:"Перевіряється", PUBLISHED:"Симульовано"};
+const stageNames = {story_plan:"План історії", clip_plan:"План кліпу", cartoon_plan:"План мультфільму", render:"Рендер", qa:"Перевірка", package:"Збірка пакета"};
+let token = "factory-local-operator";
+let current = "studio";
+let connected = false;
+let previewUrl;
+let detailVersion = 0;
+const jobs = new Map();
+const batchIds = new Set(JSON.parse(localStorage.getItem("factory-batches") || "[]"));
+const activeStates = new Set(["CREATED", "GENERATING"]);
+
+function node(tag, value, className) {
+  const item = document.createElement(tag);
+  if (value !== undefined) item.textContent = value;
+  if (className) item.className = className;
+  return item;
+}
+function button(label, action, className) {
+  const item = node("button", label, className);
+  item.type = "button";
+  item.onclick = () => perform(item, action);
+  return item;
+}
+function notify(message, tone = "") {
+  el("notice").textContent = message;
+  el("notice").className = "notice " + tone;
+}
+function badge(state) {
+  const tone = ["COMPLETE","SUCCEEDED","PUBLISHED"].includes(state) ? "good" :
+    ["FAILED","BLOCKED"].includes(state) ? "bad" : "warn";
+  return node("span", status[state] || state, "badge " + tone);
+}
+function time(value) {
+  return new Date(value).toLocaleString("uk-UA");
+}
+function platform(account) {
+  return account.replace(/^mock-/, "").replace("youtube", "YouTube").replace("tiktok", "TikTok").replace("instagram", "Instagram");
+}
 async function api(path, body) {
-  const response = await fetch('/api/v1/' + path, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: {Authorization: el('token').value, 'Content-Type': 'application/json'},
+  const response = await fetch("/api/v1/" + path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {Authorization: token, "Content-Type": "application/json"},
     body: body === undefined ? undefined : JSON.stringify(body)
   });
-  if (!response.ok) throw Error(await response.text());
-  return response;
+  if (response.ok) return response;
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401) throw Error("Перевір токен оператора в розділі «Доступ».");
+  if (response.status === 404) throw Error("За цим ID нічого не знайдено.");
+  const detail = Array.isArray(data.detail) ? data.detail.map(item =>
+    item.msg || item.errors?.map(error => error.msg).join(", ")).filter(Boolean).join("; ") : data.detail;
+  throw Error(detail || "Не вдалося виконати запит (" + response.status + ").");
 }
-function action(button, fn) {
-  button.onclick = async () => {
-    try { el('result').textContent = JSON.stringify(await fn(), null, 2); }
-    catch (error) { el('result').textContent = error.message; }
-  };
+async function json(path, body) {
+  return (await api(path, body)).json();
 }
-action(el('submit'), async () => (await api('batches', {jobs: JSON.parse(el('jobs').value)})).json());
-action(el('approve'), async () => (await api('publication-batches', {targets: JSON.parse(el('approval').value)})).json());
-for (const button of document.querySelectorAll('[data-get]')) {
-  action(button, async () => {
-    let path = button.dataset.get;
-    if (['batches', 'jobs'].includes(path)) path += '/' + encodeURIComponent(el('entity').value);
-    return (await api(path)).json();
+async function perform(control, task) {
+  control.disabled = true;
+  try { await task(); }
+  catch (error) { notify(error.message, "bad"); }
+  finally { control.disabled = false; }
+}
+function empty(container, message) {
+  container.replaceChildren(node("p", message, "empty"));
+}
+function resultCard(title, detail, state) {
+  const card = node("article", undefined, "card stack");
+  const head = node("div", undefined, "row");
+  head.append(node("h3", title, "scroll-label"));
+  if (state) head.append(badge(state));
+  card.append(head, node("small", detail, "scroll-label"));
+  return card;
+}
+function rememberBatch(id) {
+  batchIds.add(id);
+  if (batchIds.size > 12) batchIds.delete(batchIds.values().next().value);
+  localStorage.setItem("factory-batches", JSON.stringify([...batchIds]));
+}
+function addDraft(example = false) {
+  const fragment = el("draft-template").content.cloneNode(true);
+  const draft = fragment.querySelector("fieldset");
+  const mode = draft.querySelector("[name=mode]");
+  mode.onchange = () => { draft.querySelector("[data-clips]").hidden = mode.value !== "CLIPS"; };
+  const rights = draft.querySelector("[name=rights]");
+  const evidence = draft.querySelector("[name=evidence]");
+  rights.onchange = () => { evidence.required = ["original","authorized"].includes(rights.value); };
+  rights.onchange();
+  draft.querySelector("[data-remove]").onclick = () => { draft.remove(); updateDrafts(); };
+  if (example) {
+    draft.querySelector("textarea").value = "На горищі я знайшов лист, який дід написав мені тридцять років тому.";
+    evidence.value = "Авторський тестовий сюжет";
+  }
+  el("drafts").append(fragment);
+  updateDrafts();
+}
+function updateDrafts() {
+  const drafts = [...el("drafts").children];
+  drafts.forEach((draft, index) => {
+    draft.querySelector("legend").textContent = drafts.length > 1 ? "Завдання " + (index + 1) : "Завдання";
+    draft.querySelector("[data-remove]").hidden = drafts.length === 1;
+  });
+  el("add").disabled = drafts.length >= 20;
+}
+function renderQueue() {
+  const list = el("queue");
+  list.replaceChildren();
+  if (!jobs.size) return empty(list, "Тут з’являться завдання, які ти запустиш або відкриєш за ID.");
+  for (const job of [...jobs.values()].reverse()) {
+    const item = node("div", undefined, "list-item");
+    const head = node("div", undefined, "row");
+    head.append(node("h3", modes[job.spec.mode]), badge(job.state));
+    item.append(head, node("p", job.spec.prompt), button("Деталі", () => showJob(job.id)));
+    if (job.state === "COMPLETE") item.append(" ", button("У бібліотеку", () => navigate("library")));
+    list.append(item);
+  }
+}
+async function refreshQueue() {
+  for (const id of [...batchIds]) {
+    const batch = await json("batches/" + encodeURIComponent(id));
+    batch.jobs.forEach(job => jobs.set(job.id, job));
+  }
+  renderQueue();
+}
+function detail(title) {
+  detailVersion += 1;
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = undefined;
+  el("detail-title").textContent = title;
+  el("detail-body").replaceChildren();
+  if (!el("detail").open) el("detail").showModal();
+  return el("detail-body");
+}
+async function showJob(id) {
+  const job = await json("jobs/" + encodeURIComponent(id));
+  const body = detail(modes[job.spec.mode] || "Завдання");
+  body.append(badge(job.state), node("p", job.spec.prompt), node("small", job.id, "scroll-label"));
+  job.stages.forEach(stage => {
+    const line = node("div", undefined, "step");
+    line.append(node("span", stageNames[stage.name] || stage.name), badge(stage.state));
+    body.append(line);
+    if (stage.error) body.append(node("small", stage.error));
   });
 }
-let previewUrl;
-action(el('packages'), async () => {
-  const packages = await (await api('packages')).json();
-  el('previews').replaceChildren();
-  for (const item of packages) {
-    for (const [index, part] of item.parts.entries()) {
-      const button = document.createElement('button');
-      button.textContent = item.job + ' / part ' + (index + 1);
-      el('previews').append(button);
-      action(button, async () => {
-        const data = await (await api('artifacts/' + part.sha256 + '/download')).arrayBuffer();
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
-        previewUrl = URL.createObjectURL(new Blob([data], {type:'video/mp4'}));
-        el('previews').querySelector('video')?.remove();
-        const video = document.createElement('video');
-        video.src = previewUrl;
-        video.controls = true;
-        el('previews').append(video);
-        return item;
-      });
-    }
+async function preview(part, title) {
+  const body = detail(title);
+  const version = detailVersion;
+  empty(body, "Завантажуємо відео…");
+  try {
+    const response = await api("artifacts/" + part.sha256 + "/download");
+    const data = await response.arrayBuffer();
+    if (version !== detailVersion || !el("detail").open) return;
+    previewUrl = URL.createObjectURL(new Blob([data], {type:"video/mp4"}));
+    const video = document.createElement("video");
+    video.controls = true;
+    video.playsInline = true;
+    video.src = previewUrl;
+    const link = node("a", "Завантажити MP4");
+    link.href = previewUrl;
+    link.download = "video.mp4";
+    body.replaceChildren(video, link);
+  } catch (error) {
+    if (version === detailVersion) empty(body, error.message);
   }
-  return packages;
+}
+async function schedule(item, part) {
+  const accounts = await json("platform-accounts");
+  const body = detail("Запланувати симуляцію");
+  const form = node("form", undefined, "stack");
+  const list = node("fieldset", undefined, "stack");
+  list.append(node("legend", "Акаунти"));
+  for (const account of accounts) {
+    const option = document.createElement("input");
+    option.type = "checkbox";
+    option.value = account.id;
+    const label = node("label", undefined, "checkbox");
+    label.append(option, node("span", platform(account.id)));
+    list.append(label);
+  }
+  const caption = document.createElement("textarea");
+  caption.required = true;
+  caption.maxLength = 2200;
+  const captionLabel = node("label", "Підпис", "field");
+  captionLabel.append(caption);
+  const when = document.createElement("input");
+  when.type = "datetime-local";
+  const timeLabel = node("label", "Час запуску (порожньо — зараз)", "field");
+  timeLabel.append(when);
+  const message = node("p");
+  message.setAttribute("role", "alert");
+  const submit = node("button", "Підтвердити", "primary");
+  form.append(list, captionLabel, timeLabel, message, submit);
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const selected = [...list.querySelectorAll("input:checked")];
+    if (!selected.length) { message.textContent = "Вибери хоча б один акаунт."; return; }
+    submit.disabled = true;
+    try {
+      const date = when.value ? new Date(when.value) : new Date();
+      await json("publication-batches", {targets:selected.map(option => ({
+        job:item.job, part, account:option.value, caption:caption.value, scheduled_at:date.toISOString()
+      }))});
+      el("detail").close();
+      notify("Симуляцію заплановано.", "good");
+      await navigate("publish");
+    } catch (error) { message.textContent = error.message; }
+    finally { submit.disabled = false; }
+  };
+  body.append(form);
+}
+async function renderLibrary() {
+  const packages = await json("packages");
+  const container = el("videos");
+  container.replaceChildren();
+  if (!packages.length) return empty(container, "Готових відео ще немає.");
+  for (const item of [...packages].reverse()) {
+    item.parts.forEach((part, index) => {
+      const job = jobs.get(item.job);
+      const title = (job ? modes[job.spec.mode] : "Відео " + item.job.slice(0, 8)) + " · частина " + (index + 1);
+      const card = node("article", undefined, "card preview-card");
+      const art = node("div", "▶", "preview-art");
+      art.setAttribute("aria-hidden", "true");
+      const body = node("div", undefined, "preview-body stack");
+      const info = item.review.media[index];
+      body.append(node("h3", title), badge(item.publishable ? "COMPLETE" : "BLOCKED"));
+      if (job) body.append(node("small", job.spec.prompt.slice(0, 120)));
+      if (info?.duration_seconds) body.append(node("small", info.duration_seconds + " с · MP4"));
+      const actions = node("div", undefined, "actions");
+      actions.append(button("Переглянути", () => preview(part, title), "primary"));
+      if (item.publishable) actions.append(button("Запланувати", () => schedule(item, index + 1)));
+      body.append(actions);
+      card.append(art, body);
+      container.append(card);
+    });
+  }
+}
+async function renderCards(path, id, message, makeCard) {
+  const values = await json(path);
+  const container = el(id);
+  if (!values.length) return empty(container, message);
+  container.replaceChildren(...[...values].reverse().map(makeCard));
+}
+const views = {
+  studio: refreshQueue,
+  library: renderLibrary,
+  publish: () => renderCards("publication-targets", "targets", "Публікацій ще немає.", item =>
+    resultCard(platform(item.snapshot.account), time(item.snapshot.scheduled_at) + " · " + item.snapshot.caption, item.state)),
+  drive: () => renderCards("drive/uploads", "uploads", "Завантажень ще немає. Тут з’являться результати після підключення Drive.", item => {
+    const card = resultCard("Відео " + item.job_id.slice(0, 8), item.error || item.remote_id || "У черзі",
+      item.url ? "COMPLETE" : item.error ? "FAILED" : "CREATED");
+    if (item.url) {
+      const link = node("a", "Відкрити в Google Drive");
+      link.href = "https://drive.google.com/file/d/" + encodeURIComponent(item.remote_id) + "/view";
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      card.append(link);
+    }
+    return card;
+  }),
+  workers: () => renderCards("workers", "agents", "Воркери ще не зверталися до черги.", item =>
+    resultCard(item.id, "Остання активність: " + time(item.seen)))
+};
+async function navigate(view) {
+  current = view;
+  document.querySelectorAll(".view").forEach(section => { section.hidden = section.id !== view; });
+  document.querySelectorAll("[data-view]").forEach(control => {
+    if (control.dataset.view === view) control.setAttribute("aria-current", "page");
+    else control.removeAttribute("aria-current");
+  });
+  if (connected) await views[view]();
+}
+async function connect(candidate) {
+  const previous = token;
+  token = candidate;
+  try { await json("workers"); }
+  catch (error) { token = previous; throw error; }
+  connected = true;
+  el("connection-status").textContent = "Підключено";
+  el("connection-status").className = "badge good";
+}
+document.querySelectorAll("[data-view]").forEach(control => {
+  control.onclick = () => perform(control, () => navigate(control.dataset.view));
+});
+document.querySelectorAll("[data-close]").forEach(control => {
+  control.onclick = () => control.closest("dialog").close();
+});
+el("detail").addEventListener("close", () => {
+  detailVersion += 1;
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = undefined;
+  el("detail-body").replaceChildren();
+});
+el("open-settings").onclick = () => el("settings").showModal();
+el("connect").onsubmit = async event => {
+  event.preventDefault();
+  const errorLine = el("connect-error");
+  errorLine.hidden = true;
+  try {
+    await connect(el("token").value.trim());
+    el("token").value = "";
+    el("settings").close();
+    await navigate(current);
+  } catch (error) {
+    if (el("settings").open) { errorLine.textContent = error.message; errorLine.hidden = false; }
+    else notify(error.message, "bad");
+  }
+};
+el("add").onclick = () => addDraft();
+el("refresh-queue").onclick = event => perform(event.currentTarget, refreshQueue);
+el("create").onsubmit = event => {
+  event.preventDefault();
+  perform(event.submitter, async () => {
+    const drafts = [...el("drafts").children].map(draft => {
+      const read = name => draft.querySelector("[name=" + name + "]");
+      return {
+        mode:read("mode").value, locale:read("locale").value, prompt:read("prompt").value,
+        rights:read("rights").value, evidence:read("evidence").value, parts:Number(read("parts").value),
+        synthetic_clip:read("mode").value === "CLIPS", stacked:read("stacked").checked
+      };
+    });
+    const result = await json("batches", {jobs:drafts});
+    rememberBatch(result.id);
+    notify("Додано до черги: " + result.accepted.length + (result.rejected.length ?
+      ". Відхилено: " + result.rejected.map(item => "#" + (item.index + 1) + " " +
+        item.errors.map(error => error.msg).join(", ")).join("; ") : "."), result.rejected.length ? "warn" : "good");
+    await refreshQueue();
+  });
+};
+el("find").onsubmit = event => {
+  event.preventDefault();
+  perform(event.submitter, async () => {
+    const id = el("lookup").value.trim();
+    if (event.submitter.value === "jobs") return showJob(id);
+    const batch = await json("batches/" + encodeURIComponent(id));
+    rememberBatch(batch.id);
+    batch.jobs.forEach(job => jobs.set(job.id, job));
+    renderQueue();
+  });
+};
+let polling = false;
+setInterval(async () => {
+  if (polling || !connected || current !== "studio" ||
+      ![...jobs.values()].some(job => activeStates.has(job.state))) return;
+  polling = true;
+  try { await refreshQueue(); }
+  catch (error) { notify(error.message, "bad"); }
+  finally { polling = false; }
+}, 3000);
+addDraft(true);
+renderQueue();
+connect(token).then(() => navigate(current)).catch(error => {
+  el("connection-status").textContent = "Потрібен доступ";
+  notify(error.message, "warn");
 });
 </script>
+</body>
+</html>

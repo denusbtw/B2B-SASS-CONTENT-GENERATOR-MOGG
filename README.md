@@ -14,11 +14,8 @@ Compose starts PostgreSQL, applies migrations, and starts the API, two Generator
 workers, and MockPublisher. The first build downloads the base images and dependencies.
 
 1. Open [the operator dashboard](http://127.0.0.1:8080/operator).
-2. Enter `factory-local-operator` in **Operator token** and click **Submit batch**
-   to send the prefilled STORY example.
-3. Click **Review packages** after the worker finishes, then select the package to
-   preview the MP4. **Workers** shows both Generators. **Scheduled and published**
-   shows the mock publication targets.
+2. In **Студія**, click **Запустити генерацію** to send the prefilled STORY example. The queue refreshes while jobs run.
+3. Open **Бібліотека** and click **Переглянути**. Use **Доступ** to enter a custom operator token if configured.
 
 Use `docker compose logs -f api worker-a worker-b publisher` to follow the services
 and `docker compose down` to stop them while keeping PostgreSQL data and the media
@@ -61,7 +58,7 @@ Set the two tokens and database URL in each participating terminal using local e
 .\.venv\Scripts\python.exe -m factory.publisher
 ```
 
-Open http://127.0.0.1:8080/operator. Submit a JSON array of up to 20 jobs, then open Review packages and preview a finished video. The demo script shows a complete input array and approval format. Example approval payload for the UI is an array containing an object with `job` (a completed UUID), `part`, `account` (for example `mock-youtube-a`), `caption`, and `scheduled_at` (an ISO timestamp with UTC offset). A second approval of the same media, account, and UTC slot is rejected.
+Open http://127.0.0.1:8080/operator. Submit up to 20 jobs from **Студія**. In **Бібліотека**, preview a video or use **Запланувати** to approve a mock publication for selected accounts. **Публікації** shows the resulting targets.
 
 ### Tests
 
