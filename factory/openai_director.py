@@ -53,6 +53,13 @@ def call(path: str, payload: dict, http: httpx.Client | None = None) -> httpx.Re
     except httpx.RequestError:
         # A timed-out request may already have incurred charges.
         raise ProviderError("provider_request_uncertain") from None
+    if response.status_code == 429:
+        try:
+            code = response.json()["error"]["code"]
+        except (ValueError, TypeError, KeyError):
+            code = None
+        if code in ("credit_balance_exhausted", "insufficient_quota"):
+            raise ProviderError("provider_credit_exhausted")
     if not response.is_success:
         raise ProviderError("provider_rejected")
     return response
@@ -72,7 +79,11 @@ def strict_schema(value):
             "pattern",
         }
         return {
-            key: strict_schema(item)
+            key: (
+                {name: strict_schema(schema) for name, schema in item.items()}
+                if key in {"properties", "$defs"}
+                else strict_schema(item)
+            )
             for key, item in value.items()
             if key not in unsupported
         }

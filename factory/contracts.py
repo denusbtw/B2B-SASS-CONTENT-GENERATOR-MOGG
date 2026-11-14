@@ -68,6 +68,7 @@ class Failure(Lease):
         "provider_not_configured",
         "provider_request_uncertain",
         "provider_rejected",
+        "provider_credit_exhausted",
         "provider_invalid_audio",
     ]
 

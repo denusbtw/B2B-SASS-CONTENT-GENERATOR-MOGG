@@ -227,7 +227,7 @@ async function showJob(id) {
     const line = node("div", undefined, "step");
     line.append(node("span", stageNames[stage.name] || stage.name), badge(stage.state));
     body.append(line);
-    if (stage.error) body.append(node("small", stage.error));
+    if (stage.error) body.append(node("small", stage.error === "provider_credit_exhausted" ? "Для цього проєкту OpenAI API вичерпано кредити. Перевір баланс у Billing." : stage.error));
   });
 }
 async function preview(part, title) {

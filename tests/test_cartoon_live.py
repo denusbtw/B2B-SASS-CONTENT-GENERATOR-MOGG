@@ -41,6 +41,17 @@ def test_structured_story(monkeypatch):
         body = json.loads(request.content)
         assert request.url.path == "/v1/responses"
         assert body["text"]["format"]["strict"]
+        schema = body["text"]["format"]["schema"]
+        for obj in (
+            schema,
+            schema["$defs"]["EpisodeScript"],
+            schema["$defs"]["CartoonScene"],
+        ):
+            assert set(obj["required"]) == set(obj["properties"])
+        assert schema["properties"]["title"]["type"] == "string"
+        assert (
+            schema["$defs"]["EpisodeScript"]["properties"]["title"]["type"] == "string"
+        )
         assert not body["store"]
         return httpx.Response(
             200,
@@ -104,3 +115,16 @@ def test_mp4_uses_audio_duration(monkeypatch, tmp_path):
     assert timeline.fps == 30
     assert "00:00:03,000 --> 00:00:04,000" in captions
     assert media.inspect_video(output, timeline)["passed"]
+
+
+def test_exhausted_credits_are_identified(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "mock-test-key")
+    spec = JobSpec(mode="CARTOON_2D", provider="openai", prompt="Mystery")
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(
+            429, json={"error": {"code": "credit_balance_exhausted"}}
+        )
+    )
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(ProviderError, match="^provider_credit_exhausted$"):
+            plan_story(spec, client)
