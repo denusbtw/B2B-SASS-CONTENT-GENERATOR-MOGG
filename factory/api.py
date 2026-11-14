@@ -1,5 +1,7 @@
 import hmac
 import os
+import hashlib
+from tempfile import NamedTemporaryFile
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -18,9 +20,11 @@ from factory.contracts import (
     Lease,
     Plan,
     Review,
+    Timeline,
 )
 from factory.db import Conflict, configured_ledger, jobs, stages, targets, workers
-from factory.storage import MAX_BYTES, put, verified
+from factory import storage
+from factory.storage import verified
 
 ledger = configured_ledger()
 router = APIRouter(prefix="/api/v1")
@@ -148,7 +152,13 @@ def complete(stage: UUID, lease: Lease, result: dict):
     try:
         if row["name"].endswith("_plan"):
             plan = Plan.model_validate(result)
-            if len(plan.timelines) != spec.parts or any(
+            if spec.provider == "openai":
+                from factory.openai_director import StoryDraft
+
+                story = StoryDraft.model_validate(plan.story)
+                if plan.provider != "openai" or len(story.episodes) != spec.parts:
+                    raise ValueError("Live plan mismatch")
+            elif len(plan.timelines) != spec.parts or any(
                 item.mode != spec.mode or item.part != i
                 for i, item in enumerate(plan.timelines, 1)
             ):
@@ -160,6 +170,8 @@ def complete(stage: UUID, lease: Lease, result: dict):
             for part in result["parts"]:
                 verified(part["sha256"])
                 verified(part["captions"])
+                if spec.provider == "openai":
+                    Timeline.model_validate(part["timeline"])
         elif row["name"] == "qa":
             result = Review.model_validate(result).model_dump(mode="json")
         elif row["name"] == "package":
@@ -173,8 +185,15 @@ def complete(stage: UUID, lease: Lease, result: dict):
                 "evidence": spec.evidence,
                 "review": outputs["qa"],
                 "storage": "local_mock",
-                "audio": "synthetic_tone",
-                "cloud_calls": 0,
+                "audio": "openai_tts"
+                if spec.provider == "openai"
+                else "synthetic_tone",
+                "cloud_calls": sum(
+                    part.get("speech_calls", 0) for part in outputs["render"]["parts"]
+                )
+                + outputs[next(key for key in outputs if key.endswith("_plan"))][
+                    "cloud_calls"
+                ],
             }
             result["manifest_hash"] = digest(result)
     except (ValueError, KeyError, TypeError) as exc:
@@ -191,12 +210,25 @@ def fail(stage: UUID, body: Failure):
 
 @router.post("/artifacts/upload", dependencies=[Depends(worker)])
 async def upload(request: Request):
-    data = bytearray()
-    async for chunk in request.stream():
-        if len(data) + len(chunk) > MAX_BYTES:
-            raise HTTPException(413, "Artifact exceeds size limit")
-        data.extend(chunk)
-    return {"sha256": put(bytes(data))}
+    storage.ROOT.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    size = 0
+    temporary = None
+    try:
+        with NamedTemporaryFile(dir=storage.ROOT, delete=False) as output:
+            temporary = Path(output.name)
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > storage.MAX_BYTES:
+                    raise HTTPException(413, "Artifact exceeds size limit")
+                digest.update(chunk)
+                output.write(chunk)
+        key = digest.hexdigest()
+        temporary.replace(storage.path_for(key))
+        return {"sha256": key}
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 @router.get("/artifacts/{key}/download", dependencies=[Depends(reader)])

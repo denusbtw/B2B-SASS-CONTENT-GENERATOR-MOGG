@@ -9,9 +9,12 @@ from time import sleep
 
 import httpx
 
-from factory.contracts import JobSpec, Plan
+from factory.cartoon import render_episode
+from factory.contracts import EpisodeScript, JobSpec, Plan, Timeline
 from factory.director import MockGPT, NeedsReview
 from factory.media import inspect_video, render
+
+from factory.openai_director import ProviderError, plan_story
 
 DIRECTOR = MockGPT()
 
@@ -31,11 +34,22 @@ def upload(client, payload):
     return remote
 
 
+def upload_file(client, path):
+    with path.open("rb") as handle:
+        expected = hashlib.file_digest(handle, "sha256").hexdigest()
+        handle.seek(0)
+        remote = request(client, "POST", "/artifacts/upload", content=handle).json()
+    if remote["sha256"] != expected:
+        raise ValueError("Uploaded artifact hash mismatch")
+    return expected
+
+
 def execute(client, claim):
     name = claim["name"]
     spec = JobSpec.model_validate(claim["spec"])
     if name.endswith("_plan"):
-        return DIRECTOR.plan(spec).model_dump(mode="json")
+        plan = plan_story(spec) if spec.provider == "openai" else DIRECTOR.plan(spec)
+        return plan.model_dump(mode="json")
     if name == "package":
         return {}
     results = claim["outputs"]
@@ -48,6 +62,27 @@ def execute(client, claim):
         work = Path(directory)
         if name == "render":
             outputs = []
+            if spec.provider == "openai":
+                assert plan.story is not None
+                target = spec.duration_seconds / (
+                    spec.parts if spec.duration_scope == "series" else 1
+                )
+                for index, data in enumerate(plan.story["episodes"], 1):
+                    directory = work / str(index)
+                    directory.mkdir()
+                    episode = EpisodeScript.model_validate(data)
+                    video, captions, timeline = render_episode(
+                        episode, index, spec.voice, directory, target
+                    )
+                    outputs.append(
+                        {
+                            "sha256": upload_file(client, video),
+                            "captions": upload(client, captions.encode()),
+                            "timeline": timeline.model_dump(mode="json"),
+                            "speech_calls": len(episode.scenes),
+                        }
+                    )
+                return {"parts": outputs}
             for timeline in plan.timelines:
                 part = work / str(timeline.part)
                 part.mkdir()
@@ -60,15 +95,23 @@ def execute(client, claim):
                 )
             return {"parts": outputs}
         media = []
-        for timeline, artifact in zip(
-            plan.timelines, results["render"]["parts"], strict=True
-        ):
+        artifacts = results["render"]["parts"]
+        for index, artifact in enumerate(artifacts):
+            timeline = (
+                Timeline.model_validate(artifact["timeline"])
+                if spec.provider == "openai"
+                else plan.timelines[index]
+            )
             key = artifact["sha256"]
-            payload = request(client, "GET", f"/artifacts/{key}/download").content
-            if hashlib.sha256(payload).hexdigest() != key:
-                raise ValueError("Downloaded artifact hash mismatch")
             video = work / f"{timeline.part}.mp4"
-            video.write_bytes(payload)
+            with client.stream("GET", f"/artifacts/{key}/download") as remote:
+                remote.raise_for_status()
+                with video.open("wb") as output:
+                    for chunk in remote.iter_bytes():
+                        output.write(chunk)
+            with video.open("rb") as handle:
+                if hashlib.file_digest(handle, "sha256").hexdigest() != key:
+                    raise ValueError("Downloaded artifact hash mismatch")
             media.append(inspect_video(video, timeline))
         return DIRECTOR.review(media).model_dump(mode="json")
 
@@ -98,6 +141,8 @@ def tick(client, worker):
                 path + "/complete",
                 json={"lease": lease, "result": output},
             )
+        except ProviderError as error:
+            request(client, "POST", path + "/fail", json={**lease, "code": error.code})
         except NeedsReview:
             request(
                 client,

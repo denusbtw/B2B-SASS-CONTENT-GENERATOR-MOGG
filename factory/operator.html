@@ -70,6 +70,10 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
       <label class="field">Формат<select name="mode"><option value="STORY">Історія</option><option value="CLIPS">Тестовий кліп</option><option value="CARTOON_2D">2D-мультфільм</option></select></label>
       <label class="field">Мова<select name="locale"><option value="uk">Українська</option><option value="en">English</option><option value="ru">Русский</option></select></label>
     </div>
+    <div class="two" data-cartoon hidden>
+      <label class="field">Режим мультфільму<select name="provider"><option value="mock">Демо</option><option value="openai">OpenAI + озвучка</option></select></label>
+      <label class="field">Секунд на частину<input name="duration_seconds" type="number" min="30" max="180" value="45"></label>
+    </div>
     <label class="field">Текст або ідея<textarea name="prompt" required maxlength="6000" placeholder="Опиши, що має статися в ролику"></textarea></label>
     <div class="two">
       <label class="field">Права на матеріал<select name="rights"><option value="original">Власний матеріал</option><option value="authorized">Є дозвіл</option><option value="unknown">Невідомі</option><option value="denied">Немає дозволу</option></select></label>
@@ -165,7 +169,7 @@ function addDraft(example = false) {
   const fragment = el("draft-template").content.cloneNode(true);
   const draft = fragment.querySelector("fieldset");
   const mode = draft.querySelector("[name=mode]");
-  mode.onchange = () => { draft.querySelector("[data-clips]").hidden = mode.value !== "CLIPS"; };
+  mode.onchange = () => { draft.querySelector("[data-clips]").hidden = mode.value !== "CLIPS"; draft.querySelector("[data-cartoon]").hidden = mode.value !== "CARTOON_2D"; };
   const rights = draft.querySelector("[name=rights]");
   const evidence = draft.querySelector("[name=evidence]");
   rights.onchange = () => { evidence.required = ["original","authorized"].includes(rights.value); };
@@ -422,7 +426,9 @@ el("create").onsubmit = event => {
       return {
         mode:read("mode").value, locale:read("locale").value, prompt:read("prompt").value,
         rights:read("rights").value, evidence:read("evidence").value, parts:Number(read("parts").value),
-        synthetic_clip:read("mode").value === "CLIPS", stacked:read("stacked").checked
+        synthetic_clip:read("mode").value === "CLIPS", stacked:read("stacked").checked,
+        provider:read("mode").value === "CARTOON_2D" ? read("provider").value : "mock",
+        duration_seconds:Number(read("duration_seconds").value)
       };
     });
     const result = await json("batches", {jobs:drafts});

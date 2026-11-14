@@ -229,8 +229,8 @@ def inspect_video(path: Path, timeline: Timeline) -> dict:
         good = (
             video.get("codec_name") == "h264"
             and audio.get("codec_name") == "aac"
-            and video.get("width") == 360
-            and video.get("height") == 640
+            and video.get("width") == timeline.width
+            and video.get("height") == timeline.height
         )
     else:
         decoded = run(
@@ -238,7 +238,7 @@ def inspect_video(path: Path, timeline: Timeline) -> dict:
             work,
         )
         good = bool(
-            re.search(r"Video: h264[^\n]*360x640", decoded)
+            re.search(rf"Video: h264[^\n]*{timeline.width}x{timeline.height}", decoded)
             and re.search(r"Audio: aac", decoded)
         )
         match = re.search(r"Duration: (\d+):(\d+):([\d.]+)", decoded)
@@ -282,6 +282,6 @@ def inspect_video(path: Path, timeline: Timeline) -> dict:
         "findings": findings,
         "duration_seconds": duration,
         "inspection": "ffprobe" if probe else "ffmpeg_decode",
-        "width": 360 if good else None,
-        "height": 640 if good else None,
+        "width": timeline.width if good else None,
+        "height": timeline.height if good else None,
     }

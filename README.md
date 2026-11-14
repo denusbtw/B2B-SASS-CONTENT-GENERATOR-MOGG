@@ -2,6 +2,8 @@
 
 Local mock build for STORY, CLIPS and CARTOON_2D. FFmpeg creates playable vertical MP4s. The model, narration tones, shared archive and publishing run locally. Social actions are simulations.
 
+See [CARTOON_2D with OpenAI](docs/CARTOON_PIPELINE.md) for the optional live planning and narration path.
+
 ## Docker Compose quickstart
 
 Start Docker Desktop with Linux containers. From the repository root:

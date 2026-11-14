@@ -13,6 +13,9 @@ x-worker: &worker
       condition: service_healthy
   environment:
     WORKER_API_URL: http://api:8080
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    OPENAI_STORY_MODEL: ${OPENAI_STORY_MODEL:-gpt-6-luna}
+    OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
     WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN:-factory-local-worker}
 
 services:

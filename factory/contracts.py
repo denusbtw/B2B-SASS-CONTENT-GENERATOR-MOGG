@@ -25,6 +25,22 @@ class JobSpec(Contract):
     parts: int = Field(default=1, ge=1, le=8)
     stacked: bool = False
     synthetic_clip: bool = False
+    provider: Literal["mock", "openai"] = "mock"
+    duration_seconds: int = Field(default=45, ge=30, le=180)
+    duration_scope: Literal["per_part", "series"] = "per_part"
+    voice: Literal["alloy", "coral", "onyx", "nova"] = "onyx"
+
+    @model_validator(mode="after")
+    def validate_live(self):
+        if self.provider == "openai":
+            if self.mode != Mode.CARTOON_2D:
+                raise ValueError("OpenAI generation currently supports CARTOON_2D")
+            if (
+                self.duration_scope == "series"
+                and self.duration_seconds < 30 * self.parts
+            ):
+                raise ValueError("Allow at least 30 seconds per episode")
+        return self
 
     @property
     def rights_pass(self) -> bool:
@@ -44,7 +60,16 @@ class Lease(Claim):
 
 
 class Failure(Lease):
-    code: Literal["transient", "invalid_input", "review_required", "render_error"]
+    code: Literal[
+        "transient",
+        "invalid_input",
+        "review_required",
+        "render_error",
+        "provider_not_configured",
+        "provider_request_uncertain",
+        "provider_rejected",
+        "provider_invalid_audio",
+    ]
 
 
 class Cue(Contract):
@@ -62,11 +87,11 @@ class Cue(Contract):
 class Timeline(Contract):
     schema_version: Literal["1.0"] = "1.0"
     mode: Mode
-    width: Literal[360] = 360
-    height: Literal[640] = 640
-    fps: Literal[24] = 24
-    duration_ms: int = Field(ge=2000, le=12000)
-    cues: list[Cue] = Field(min_length=1, max_length=12)
+    width: Literal[360, 1080] = 360
+    height: Literal[640, 1920] = 640
+    fps: Literal[24, 30] = 24
+    duration_ms: int = Field(ge=2000, le=210000)
+    cues: list[Cue] = Field(min_length=1, max_length=48)
     part: int = Field(ge=1, le=8)
     source_start_ms: int = Field(default=0, ge=0, le=90000)
     stacked: bool = False
@@ -83,16 +108,33 @@ class Timeline(Contract):
         return self
 
 
+class CartoonScene(Contract):
+    narration: str = Field(min_length=1, max_length=180)
+    setting: Literal["room", "forest", "tower", "road", "phone"]
+    camera: Literal["push", "pull", "pan", "still"]
+    action: Literal["observe", "walk", "shake", "fall", "signal"]
+    overlay: str = Field(max_length=70)
+
+
+class EpisodeScript(Contract):
+    title: str = Field(min_length=1, max_length=100)
+    cliffhanger: str = Field(max_length=300)
+    scenes: list[CartoonScene] = Field(min_length=4, max_length=48)
+
+
 class Plan(Contract):
-    provider: Literal["MockGPT"] = "MockGPT"
-    prompt_version: Literal["1"] = "1"
+    provider: str = "MockGPT"
+    model: str | None = None
+    story: dict | None = None
+    usage: dict[str, int] = Field(default_factory=dict)
+    prompt_version: str = "1"
     prompt_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    timelines: list[Timeline] = Field(min_length=1, max_length=8)
-    cloud_calls: Literal[0] = 0
+    timelines: list[Timeline] = Field(max_length=8)
+    cloud_calls: int = Field(default=0, ge=0)
 
 
 class Review(Contract):
-    provider: Literal["MockVisualReview"] = "MockVisualReview"
+    provider: str = "MockVisualReview"
     decision: Literal["pass", "review_required"]
     media: list[dict]
 
