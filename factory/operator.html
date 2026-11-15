@@ -23,13 +23,14 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
     <button data-view="studio" aria-current="page">Студія</button>
     <button data-view="library">Бібліотека</button>
     <button data-view="publish">Публікації</button>
+    <button data-view="youtube">YouTube LIVE</button>
     <button data-view="drive">Google Drive</button>
     <button data-view="workers">Воркери</button>
   </nav>
   <button id="open-settings" class="connection quiet">Доступ</button>
 </aside>
 <main>
-  <header class="top"><span>Робочий простір</span><div class="actions"><span id="connection-status" class="badge">Перевіряємо доступ</span><span class="badge">Симуляція публікацій</span></div></header>
+  <header class="top"><span>Робочий простір</span><div class="actions"><span id="connection-status" class="badge">Перевіряємо доступ</span><span class="badge">MOCK за замовчуванням · LIVE після погодження</span></div></header>
   <div id="notice" class="notice" role="status" aria-live="polite"></div>
   <section id="studio" class="view">
     <div class="hero"><h1>Відеостудія</h1><p>Створи ролик і простеж його шлях до готового MP4.</p></div>
@@ -48,6 +49,7 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
   </section>
   <section id="library" class="view" hidden><div class="hero"><h1>Бібліотека</h1><p>Готові ролики та результати перевірки.</p></div><div id="videos" class="cards"></div></section>
   <section id="publish" class="view" hidden><div class="hero"><h1>Публікації</h1><p>Заплановані й підтверджені симульовані публікації.</p></div><div id="targets" class="cards"></div></section>
+  <section id="youtube" class="view" hidden><div class="hero"><h1>YouTube LIVE</h1><p>Реальні завантаження: окреме підключення каналу та явне погодження кожного відео.</p></div><div id="youtube-connection" class="panel stack"></div><div id="youtube-publications" class="stack"></div></section>
   <section id="drive" class="view" hidden><div class="hero"><h1>Google Drive</h1><p>Стан архівування та посилання на файли.</p></div><div id="uploads" class="cards"></div></section>
   <section id="workers" class="view" hidden><div class="hero"><h1>Воркери</h1><p>Час останнього звернення до черги.</p></div><div id="agents" class="cards"></div></section>
 </main>
@@ -147,7 +149,7 @@ async function api(path, body, method = body === undefined ? "GET" : "POST") {
   if (response.status === 404) throw Error("За цим ID нічого не знайдено.");
   const detail = Array.isArray(data.detail) ? data.detail.map(item =>
     item.msg || item.errors?.map(error => error.msg).join(", ")).filter(Boolean).join("; ") : data.detail;
-  throw Error(detail || "Не вдалося виконати запит (" + response.status + ").");
+  throw Error((typeof detail === "object" ? detail.code : detail) || "Не вдалося виконати запит (" + response.status + ").");
 }
 async function json(path, body) {
   return (await api(path, body)).json();
@@ -161,11 +163,11 @@ async function perform(control, task) {
 function empty(container, message) {
   container.replaceChildren(node("p", message, "empty"));
 }
-function resultCard(title, detail, state) {
+function resultCard(title, detail, state, live = false) {
   const card = node("article", undefined, "card stack");
   const head = node("div", undefined, "row");
   head.append(node("h3", title, "scroll-label"));
-  if (state) head.append(badge(state));
+  if (state) head.append(live ? node("span",state,"badge") : badge(state));
   card.append(head, node("small", detail, "scroll-label"));
   return card;
 }
@@ -327,7 +329,7 @@ async function schedule(item, part) {
 function confirmRemoval(item, part, title) {
   const body = detail("Видалити відео?");
   body.append(node("p", title), node("p",
-    "Відео зникне з бібліотеки. Заплановані публікації буде скасовано. Копія, яка вже є в Google Drive, залишиться."));
+    "Відео зникне з бібліотеки. Симульовані публікації буде скасовано. Реальні відео й розклад YouTube потрібно скасовувати в YouTube Studio. Копія в Google Drive залишиться."));
   const actions = node("div", undefined, "actions");
   actions.append(button("Скасувати", () => el("detail").close()),
     button("Видалити", async () => {
@@ -365,7 +367,8 @@ async function renderLibrary() {
       if (info?.duration_seconds || info?.duration) body.append(node("small", (info.duration_seconds || info.duration) + " с · MP4"));
       const actions = node("div", undefined, "actions");
       actions.append(button("Переглянути", () => preview(part, title), "primary"));
-      if (item.publishable) actions.append(button("Запланувати", () => schedule(item, index + 1)));
+      if (item.publishable) actions.append(button("Запланувати MOCK", () => schedule(item, index + 1)));
+      if (item.publishable || item.real_clips) actions.append(button("YouTube LIVE", () => configureYouTube(item, index + 1)));
       actions.append(button("Видалити", () => confirmRemoval(item, index + 1, title), "quiet"));
       body.append(actions);
       card.append(art, body);
@@ -373,6 +376,92 @@ async function renderLibrary() {
     });
   }
 }
+
+async function renderYouTube(poll = false) {
+  if (!poll) {
+  const value = await json("integrations/youtube/status");
+  const panel = el("youtube-connection");
+  panel.replaceChildren(node("h2", "Канал YouTube"), node("p", "Provider: " + value.provider + " · live enabled: " + value.enabled));
+  if (value.configuration_error) panel.append(node("p", value.configuration_error));
+  const account = value.connection;
+  if (account) panel.append(node("p", account.channel_title + " · " + account.channel_id), node("p", account.state));
+  panel.append(button("Підключити / перепідключити", async () => {
+    const auth = await json("integrations/youtube/connect");
+    const link = node("a", "Відкрити Google OAuth"); link.href = auth.authorization_url; link.target = "_blank"; link.rel = "noopener noreferrer"; panel.append(link);
+  }), button("Оновити статус", renderYouTube));
+  if (account?.state === "CONFIRM_CHANNEL") {
+    const confirmation = document.createElement("input"); confirmation.placeholder = "Введи ID каналу для підтвердження";
+    panel.append(confirmation, button("Підтвердити цей канал", async () => {
+      if (confirmation.value !== account.channel_id) throw Error("ID каналу не збігається.");
+      await json("integrations/youtube/confirm", {channel_id:confirmation.value,revision:account.revision}); await renderYouTube();
+    }));
+  }
+  if (account) panel.append(button("Відключити та відкликати доступ", async () => {await json("integrations/youtube/disconnect", {}); await renderYouTube();}));
+  }
+  const container = el("youtube-publications"); container.replaceChildren();
+  const rows = (await json("publication-targets")).filter(row => row.snapshot.provider === "youtube");
+  for (const row of rows) {
+    const item = await json("publications/" + row.id);
+    const card = resultCard("LIVE · " + item.snapshot.title, item.snapshot.channel_id + " · " + item.snapshot.visibility);
+    card.append(node("span", item.state, "badge " + (item.state === "PUBLISHED" ? "good" : item.state === "FAILED" ? "bad" : "warn")));
+    card.append(node("p", item.upload.offset + " / " + item.upload.size + " bytes · спроб: " + item.upload.attempts));
+    if (item.snapshot.publish_at) card.append(node("p", "Публікація: " + time(item.snapshot.publish_at) + " (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ")"));
+    if (item.upload.error) card.append(node("p", item.upload.error));
+    if (item.url) {const link=node("a", "Відкрити реальне відео YouTube");link.href=item.url;link.target="_blank";link.rel="noopener noreferrer";card.append(link);}
+    if (["DRAFT","AUTH_REQUIRED"].includes(item.state)) card.append(button("Переглянути й погодити", () => reviewYouTube(item)));
+    if (["FAILED","AUTH_REQUIRED","RETRY_PENDING"].includes(item.state)) card.append(button("Повторити без нового upload", async () => {await json("publications/"+item.id+"/retry",{});await renderYouTube();}));
+    if (item.post_id || item.state === "NEEDS_RECONCILIATION") card.append(button("Перевірити remote status", async () => {await json("publications/"+item.id+"/reconcile",{});await renderYouTube();}));
+    if (item.state === "NEEDS_RECONCILIATION" && !item.post_id) {
+      const remoteId=document.createElement("input");remoteId.placeholder="ID знайденого відео з YouTube Studio";
+      const identity=document.createElement("input");identity.type="checkbox";
+      const label=node("label",undefined,"checkbox");label.append(identity,node("span","Перевірено у Studio: це саме цей файл, а не інше відео"));
+      card.append(remoteId,label,button("Прив'язати перевірений ID",async()=>{
+        if (!identity.checked) throw Error("Спочатку перевір відповідність у Studio.");
+        await json("publications/"+item.id+"/reconcile",{video_id:remoteId.value,confirm_remote_identity:true});await renderYouTube();
+      }));
+    }
+    container.append(card);
+  }
+  if (!rows.length) empty(container,"Вибери готовий MP4 у бібліотеці та натисни YouTube LIVE.");
+}
+function reviewYouTube(item) {
+  const body=detail("LIVE · Погодження YouTube");
+  body.append(node("p","Job: "+item.snapshot.job+" · part "+item.snapshot.part),node("small","SHA-256: "+item.snapshot.sha256,"scroll-label"),node("p","Tags: "+item.snapshot.tags.join(", ")+" · category: "+(item.snapshot.category_id || "YouTube default")));
+  body.append(node("p", "Канал: " + item.snapshot.channel_id), node("p", "Назва: " + item.snapshot.title), node("p",item.snapshot.description),node("p", "Visibility: " + item.snapshot.visibility + " · made for kids: " + item.snapshot.made_for_kids + " · synthetic: " + item.snapshot.contains_synthetic_media));
+  if (item.snapshot.publish_at) body.append(node("p", "Спочатку private, публікація: " + time(item.snapshot.publish_at)));
+  const confirm=document.createElement("input"); confirm.type="checkbox";
+  const label=node("label",undefined,"checkbox");label.append(confirm,node("span", "Погоджую реальне завантаження цього MP4 на зазначений канал"));body.append(label);
+  const publicConsent=document.createElement("input");publicConsent.type="checkbox";
+  if (item.snapshot.visibility === "public") {const label=node("label",undefined,"checkbox");label.append(publicConsent,node("span","Окремо погоджую PUBLIC доступ у зазначений час"));body.append(label);}
+  body.append(button("Погодити LIVE upload",async()=>{
+    if (!confirm.checked || (item.snapshot.visibility === "public" && !publicConsent.checked)) throw Error("Потрібне явне погодження upload і PUBLIC доступу, якщо його вибрано.");
+    await json("publications/"+item.id+"/approve",{snapshot_hash:item.snapshot_hash,channel_id:item.snapshot.channel_id,approve_live_upload:true,approve_public:publicConsent.checked});
+    el("detail").close();await navigate("youtube");
+  },"primary"));
+}
+async function configureYouTube(item,part) {
+  const state=await json("integrations/youtube/status");
+  if (!state.enabled || state.connection?.state !== "CONNECTED") {await navigate("youtube");throw Error("Спочатку налаштуй LIVE provider і підтвердь канал YouTube.");}
+  const body=detail("LIVE · Налаштування YouTube");
+  const form=node("form",undefined,"stack");
+  function input(label,type="text") {const control=document.createElement("input");control.type=type;const field=node("label",label,"field");field.append(control);form.append(field);return control;}
+  const title=input("Назва");title.required=true;title.maxLength=100;
+  const description=document.createElement("textarea");description.maxLength=5000;const dl=node("label","Опис","field");dl.append(description);form.append(dl);
+  const tags=input("Теги через кому (необов'язково)");
+  const category=input("Category ID (необов'язково)");
+  function select(label,options) {const control=document.createElement("select");for(const [value,text] of options){const option=node("option",text);option.value=value;control.append(option);}const field=node("label",label,"field");field.append(control);form.append(field);return control;}
+  const visibility=select("Visibility",[["private","Private"],["unlisted","Unlisted"],["public","Public — потребує окремого погодження"]]);
+  const kids=select("Made for kids — вибір оператора",[["","Обери явно"],["false","Ні"],["true","Так"]]);kids.required=true;
+  const synthetic=select("Реалістично змінений або синтетичний контент",[["","Обери явно"],["false","Ні"],["true","Так"]]);synthetic.required=true;
+  const when=input("Час PUBLIC публікації, необов'язково ("+Intl.DateTimeFormat().resolvedOptions().timeZone+")","datetime-local");
+  form.append(node("p","Без часу: upload зараз із вибраною visibility. З часом: обери Public; відео завантажиться приватно до зазначеного часу."));
+  const submit=node("button","Створити чернетку для перегляду","primary");form.append(submit);
+  form.onsubmit=event=>{event.preventDefault();perform(submit,async()=>{
+    const result=await json("publications/youtube",{job:item.job,part,channel_id:state.connection.channel_id,title:title.value,description:description.value,tags:tags.value.split(",").map(t=>t.trim()).filter(Boolean),...(category.value?{category_id:category.value}:{}),visibility:visibility.value,made_for_kids:kids.value==="true",contains_synthetic_media:synthetic.value==="true",...(when.value?{publish_at:new Date(when.value).toISOString()}:{})});
+    reviewYouTube(result);
+  });};body.append(form);
+}
+
 async function renderCards(path, id, message, makeCard) {
   const values = await json(path);
   const container = el(id);
@@ -382,8 +471,9 @@ async function renderCards(path, id, message, makeCard) {
 const views = {
   studio: refreshQueue,
   library: renderLibrary,
+  youtube: renderYouTube,
   publish: () => renderCards("publication-targets", "targets", "Публікацій ще немає.", item =>
-    resultCard(platform(item.snapshot.account), time(item.snapshot.scheduled_at) + " · " + item.snapshot.caption, item.state)),
+    resultCard((item.snapshot.provider === "youtube" ? "LIVE · " : "MOCK · ") + platform(item.snapshot.account), item.snapshot.provider === "youtube" ? item.snapshot.title : time(item.snapshot.scheduled_at) + " · " + item.snapshot.caption, item.state, item.snapshot.provider === "youtube")),
   drive: () => renderCards("drive/uploads", "uploads", "Завантажень ще немає. Тут з’являться результати після підключення Drive.", item => {
     const card = resultCard("Відео " + item.job_id.slice(0, 8), item.error || item.remote_id || "У черзі",
       item.url ? "COMPLETE" : item.error ? "FAILED" : "CREATED");
@@ -495,6 +585,7 @@ el("find").onsubmit = event => {
 };
 let polling = false;
 setInterval(async () => {
+  if (connected && current === "youtube" && !polling && !el("youtube-publications").contains(document.activeElement)) {polling=true;try {await renderYouTube(true);} catch(error) {notify(error.message,"bad");} finally {polling=false;} return;}
   if (polling || !connected || current !== "studio" ||
       ![...jobs.values()].some(job => activeStates.has(job.state))) return;
   polling = true;

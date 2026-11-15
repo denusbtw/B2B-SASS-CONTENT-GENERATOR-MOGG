@@ -219,3 +219,63 @@ class TargetSpec(Contract):
 
 class Approval(Contract):
     targets: list[TargetSpec] = Field(min_length=1, max_length=60)
+
+
+class YouTubePublication(Contract):
+    job: UUID
+    part: int = Field(default=1, ge=1, le=50, strict=True)
+    channel_id: str = Field(pattern=r"^UC[A-Za-z0-9_-]{22}$")
+    title: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=5000)
+    tags: list[str] = Field(default_factory=list, max_length=100)
+    category_id: str | None = Field(default=None, pattern=r"^\d{1,4}$")
+    visibility: Literal["private", "unlisted", "public"] = "private"
+    made_for_kids: bool = Field(strict=True)
+    contains_synthetic_media: bool = Field(strict=True)
+    publish_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def metadata_valid(self):
+        if (
+            "<" in self.title
+            or ">" in self.title
+            or len(self.description.encode("utf-8")) > 5000
+        ):
+            raise ValueError(
+                "Title cannot contain angle brackets; description must fit 5000 UTF-8 bytes"
+            )
+        if (
+            any(not tag or len(tag) > 500 for tag in self.tags)
+            or sum(len(tag) + (2 if " " in tag else 0) for tag in self.tags)
+            + max(0, len(self.tags) - 1)
+            > 500
+        ):
+            raise ValueError("Tags exceed YouTube metadata limits")
+        if self.publish_at is not None:
+            if self.publish_at.tzinfo is None:
+                raise ValueError("publish_at must include timezone offset")
+            self.publish_at = self.publish_at.astimezone(timezone.utc)
+            if self.publish_at <= datetime.now(timezone.utc):
+                raise ValueError("publish_at must be in the future")
+            if self.visibility != "public":
+                raise ValueError(
+                    "Scheduled publication requires explicitly requested public visibility; upload remains private until publish_at"
+                )
+        return self
+
+
+class YouTubeApproval(Contract):
+    snapshot_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    channel_id: str
+    approve_live_upload: Literal[True]
+    approve_public: bool = False
+
+
+class YouTubeChannelConfirmation(Contract):
+    channel_id: str
+    revision: str
+
+
+class YouTubeReconciliation(Contract):
+    video_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{11}$")
+    confirm_remote_identity: bool = False

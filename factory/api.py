@@ -294,6 +294,7 @@ def remove_video(job: UUID, part: int):
             .where(
                 targets.c.snapshot["job"].as_string() == str(job),
                 targets.c.snapshot["part"].as_integer() == part,
+                targets.c.snapshot["provider"].as_string().is_distinct_from("youtube"),
                 targets.c.state.in_(("SCHEDULED", "RECONCILIATION_REQUIRED")),
             )
             .values(state="CANCELLED")
@@ -379,7 +380,42 @@ def mount(app):
     from factory.clips_api import register
 
     register(router, ledger, operator, reader, worker)
+    from factory.youtube_api import register as register_youtube
+
+    register_youtube(router, operator)
     app.include_router(router)
+
+    from factory.youtube_oauth import YouTubeError
+
+    @app.exception_handler(YouTubeError)
+    async def youtube_error(request, exc):
+        from fastapi.responses import JSONResponse
+
+        status = (
+            404
+            if exc.code == "youtube_publication_not_found"
+            else 503
+            if "configuration" in exc.code
+            or "encryption_key" in exc.code
+            or "disabled" in exc.code
+            else 409
+            if exc.auth or exc.ambiguous
+            else 502
+            if exc.retry
+            else 422
+        )
+        return JSONResponse(
+            {
+                "detail": {
+                    "code": exc.code,
+                    "retryable": exc.retry,
+                    "auth_required": exc.auth,
+                    "needs_reconciliation": exc.ambiguous,
+                }
+            },
+            status_code=status,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.exception_handler(Conflict)
     async def conflict(request, exc):

@@ -84,3 +84,14 @@ See [CLIPS setup, API, demonstration and recovery](docs/CLIPS.md).
 
 Offline demonstration: `python -m scripts.clips_demo --resolution 360x640`.
 Service deployments must run `python -m alembic upgrade head`.
+
+## Real YouTube publishing (opt-in)
+
+The existing publisher now supports a real YouTube Data API v3 adapter alongside
+MockPublisher. Defaults remain `PUBLISHER_PROVIDER=mock` and `YOUTUBE_ENABLED=false`.
+Live operation requires separate OAuth consent, encrypted token storage, channel
+confirmation, rights/QA and explicit per-video approval. Uploads use persistent
+resumable sessions; upload acceptance never by itself means public availability.
+See [YouTube setup, private test, scheduling and recovery](docs/YOUTUBE.md).
+Run migration `0004_youtube_publisher` before using the integration. Offline tests
+need no Google credentials. No real video was uploaded during implementation.
