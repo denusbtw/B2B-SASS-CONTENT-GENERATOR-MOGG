@@ -91,3 +91,25 @@ the local `token.json` after revoking. Existing Drive files remain in the folder
 
 The automated suite uses mocked Google endpoints. A live upload requires your
 Google Cloud setup and browser consent.
+# Real CLIPS per-source folders
+
+After migration `0003_real_clips`, real CLIPS reuses the managed root, OAuth scope,
+credentials and resumable transport. Set `DRIVE_ARCHIVE_ENABLED=true` on the API
+(in `.env` for Compose) when configured, and start the existing `drive` profile.
+Each enabled job archives `part_01.mp4` through `part_NN.mp4` and `manifest.json`
+under `AI Video Publisher/<sanitized-title>_<full-job-id>/`.
+
+The child folder ID is saved before creation. Upload IDs and resumable sessions
+are persisted per job and logical filename. Identical bytes from different jobs
+still appear in each job's folder; legacy checksum-wide deduplication is unchanged.
+Parts upload in order, followed by the manifest. Restarted workers query saved
+sessions for their accepted offset; expired sessions restart with the same file
+ID. Completed files are skipped. File ID, parent, MIME type, byte size and SHA-256
+marker are verified. No sharing changes or local deletions occur.
+
+`GET /api/v1/clips/jobs/<job>` reports archive state and folder separately from
+local completion. `POST .../archive/retry` retries without rendering. Credentials
+stay exclusive to the Drive worker and session URLs are hidden from operator
+responses. An unconfigured deployment reports `LOCAL_COMPLETE_DRIVE_NOT_CONFIGURED`.
+The archived manifest is the immutable local completion snapshot; the API overlays
+current Drive IDs/URLs from the database. See [CLIPS documentation](CLIPS.md).

@@ -132,7 +132,14 @@ class Ledger:
                 db.execute(
                     insert(jobs).values(id=job, batch=batch, spec=spec, state="CREATED")
                 )
-                for position, name in enumerate(DAGS[spec["mode"]]):
+                from factory.clips import STAGES
+
+                dag = (
+                    STAGES
+                    if spec.get("source") and spec["mode"] == "CLIPS"
+                    else DAGS[spec["mode"]]
+                )
+                for position, name in enumerate(dag):
                     db.execute(
                         insert(stages).values(
                             id=uid(),
@@ -162,6 +169,8 @@ class Ledger:
 
     def claim(self, worker):
         with self.write() as db:
+            if self.postgres:
+                db.execute(text("SELECT pg_advisory_xact_lock(2943518351671705)"))
             at = now().isoformat()
             self.touch(db, worker, at)
             expired = (stages.c.state == "LEASED") & (stages.c.expires <= at)
@@ -176,12 +185,33 @@ class Ledger:
                     update(jobs).where(jobs.c.id == stale.job).values(state="FAILED")
                 )
                 self.event(db, stale.job, "lease_exhausted", stage=stale.name)
+            active_renders = len(
+                db.execute(
+                    select(stages.c.id).where(
+                        stages.c.name == "render_parts",
+                        stages.c.state == "LEASED",
+                        stages.c.expires > at,
+                    )
+                ).all()
+            )
+            render_available = active_renders < int(
+                os.getenv("CLIPS_MAX_CONCURRENT_RENDERS", "1")
+            )
+            download_available = not db.execute(
+                select(stages.c.id).where(
+                    stages.c.name == "ingest_source",
+                    stages.c.state == "LEASED",
+                    stages.c.expires > at,
+                )
+            ).first()
             query = (
                 select(stages)
                 .where(
                     (stages.c.state == "READY")
                     | (expired & (stages.c.attempt < MAX_ATTEMPTS))
                 )
+                .where((stages.c.name != "render_parts") | render_available)
+                .where((stages.c.name != "ingest_source") | download_available)
                 .order_by(stages.c.position, stages.c.id)
                 .limit(1)
             )
@@ -230,6 +260,8 @@ class Ledger:
                 "token": token,
                 "spec": spec,
                 "outputs": outputs,
+                "worker": worker,
+                "checkpoint": row.result or {},
             }
 
     def owned(self, db, stage, worker, token):
@@ -262,11 +294,12 @@ class Ledger:
                 .values(expires=(now() + timedelta(seconds=LEASE_SECONDS)).isoformat())
             )
 
-    def finish(self, stage, worker, token, result=None, error=None):
+    def finish(self, stage, worker, token, result=None, error=None, detail=""):
         with self.write() as db:
             row = self.owned(db, stage, worker, token)
             state = "SUCCEEDED"
             if error:
+                result = {**(row.result or {}), "error_detail": detail}
                 state = (
                     "READY"
                     if error == "transient" and row.attempt < MAX_ATTEMPTS
@@ -279,8 +312,61 @@ class Ledger:
                     db.execute(
                         update(jobs).where(jobs.c.id == row.job).values(state=job_state)
                     )
+            elif row.name == "ingest_source":
+                from factory.clips_db import sources
+
+                key = result["sha256"]
+                if (
+                    db.execute(
+                        select(sources.c.sha256).where(sources.c.sha256 == key)
+                    ).first()
+                    is None
+                ):
+                    db.execute(
+                        insert(sources).values(sha256=key, metadata=result["metadata"])
+                    )
+                db.execute(
+                    update(stages)
+                    .where(
+                        stages.c.job == row.job,
+                        stages.c.position == row.position + 1,
+                        stages.c.state == "PENDING",
+                    )
+                    .values(state="READY")
+                )
+            elif row.name == "archive_to_drive":
+                from factory.clips_db import archives
+
+                if (
+                    db.execute(
+                        select(archives.c.job).where(archives.c.job == row.job)
+                    ).first()
+                    is None
+                ):
+                    db.execute(
+                        insert(archives).values(
+                            job=row.job,
+                            state=result["status"],
+                            files={},
+                            attempts=0,
+                            due=now().isoformat(),
+                        )
+                    )
+                db.execute(
+                    update(jobs).where(jobs.c.id == row.job).values(state="COMPLETE")
+                )
             elif row.name == "package":
                 job_state = "COMPLETE" if result["publishable"] else "BLOCKED"
+                if result.get("real_clips"):
+                    job_state = "GENERATING"
+                    db.execute(
+                        update(stages)
+                        .where(
+                            stages.c.job == row.job,
+                            stages.c.position == row.position + 1,
+                        )
+                        .values(state="READY")
+                    )
                 db.execute(
                     update(jobs).where(jobs.c.id == row.job).values(state=job_state)
                 )

@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 ROOT = Path(os.getenv("MOCK_STORAGE_ROOT", "data/shared"))
-MAX_BYTES = 256 * 1024 * 1024
+MAX_BYTES = int(os.getenv("ARTIFACT_MAX_BYTES", str(2 * 1024**3)))
 
 
 def put(payload: bytes) -> str:

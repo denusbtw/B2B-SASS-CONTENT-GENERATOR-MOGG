@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from enum import StrEnum
+import re
 from typing import Literal
 from uuid import UUID
 
@@ -16,13 +17,57 @@ class Mode(StrEnum):
     CARTOON_2D = "CARTOON_2D"
 
 
+class ClipSource(Contract):
+    type: Literal["youtube", "local_file"]
+    url: str | None = None
+    artifact_id: str | None = None
+    authorized: bool = False
+
+    @model_validator(mode="after")
+    def valid_source(self):
+        if self.type == "youtube":
+            from factory.ingestion import youtube_id
+
+            youtube_id(self.url or "")
+            if self.artifact_id or not self.authorized:
+                raise ValueError(
+                    "YouTube requires explicit reuse authorization and URL only"
+                )
+        elif (
+            self.url
+            or not self.artifact_id
+            or not re.fullmatch(r"[a-f0-9]{64}", self.artifact_id)
+        ):
+            raise ValueError("Local source requires a SHA-256 artifact ID only")
+        return self
+
+
+class ClipOutput(Contract):
+    format: Literal["mp4"] = "mp4"
+    aspect_ratio: Literal["9:16"] = "9:16"
+    resolution: Literal["1080x1920", "360x640"] = "1080x1920"
+    fps: Literal[24, 30] = 30
+    framing: Literal["center_crop", "blurred_background"] = "blurred_background"
+    preset: Literal["ultrafast", "veryfast", "fast", "medium", "slow"] = "veryfast"
+    crf: int = Field(default=23, ge=16, le=35)
+
+
+class ClipDrive(Contract):
+    enabled: bool = True
+    create_source_folder: Literal[True] = True
+
+
 class JobSpec(Contract):
     mode: Mode
-    prompt: str = Field(min_length=1, max_length=6000)
+    prompt: str = Field(default="Video clips", min_length=1, max_length=6000)
     locale: Literal["uk", "en", "ru"] = "uk"
     rights: Literal["original", "authorized", "unknown", "denied"] = "unknown"
     evidence: str = Field(default="", max_length=500)
-    parts: int = Field(default=1, ge=1, le=8)
+    parts: int = Field(default=1, ge=1, le=50, strict=True)
+    source: ClipSource | None = None
+    split_strategy: Literal["equal_duration"] = "equal_duration"
+    output: ClipOutput = Field(default_factory=ClipOutput)
+    google_drive: ClipDrive = Field(default_factory=ClipDrive)
     stacked: bool = False
     synthetic_clip: bool = False
     provider: Literal["mock", "openai"] = "mock"
@@ -32,6 +77,19 @@ class JobSpec(Contract):
 
     @model_validator(mode="after")
     def validate_live(self):
+        if not self.source and "prompt" not in self.model_fields_set:
+            raise ValueError("Prompt is required for non-source jobs")
+        if self.source:
+            if (
+                self.mode != Mode.CLIPS
+                or self.synthetic_clip
+                or self.provider != "mock"
+            ):
+                raise ValueError(
+                    "Real sources are exclusive to deterministic CLIPS mode"
+                )
+        elif self.parts > 8:
+            raise ValueError("Non-source jobs support at most 8 parts")
         if self.provider == "openai":
             if self.mode != Mode.CARTOON_2D:
                 raise ValueError("OpenAI generation currently supports CARTOON_2D")
@@ -60,6 +118,7 @@ class Lease(Claim):
 
 
 class Failure(Lease):
+    detail: str = Field(default="", max_length=500)
     code: Literal[
         "transient",
         "invalid_input",

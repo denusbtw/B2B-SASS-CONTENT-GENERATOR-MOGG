@@ -156,12 +156,17 @@ class Drive:
 
     @staticmethod
     def verify_upload(
-        data: dict, file_id: str, folder_id: str, sha256: str, size: int
+        data: dict,
+        file_id: str,
+        folder_id: str,
+        sha256: str,
+        size: int,
+        mime_type: str = "video/mp4",
     ) -> str:
         if (
             data.get("id") != file_id
             or data.get("parents") != [folder_id]
-            or data.get("mimeType") != "video/mp4"
+            or data.get("mimeType") != mime_type
             or data.get("trashed") is not False
             or (data.get("appProperties") or {}).get("sha256") != sha256
             or str(data.get("size")) != str(size)
@@ -170,38 +175,54 @@ class Drive:
         return f"https://drive.google.com/file/d/{valid_id(file_id)}/view"
 
     def upload(
-        self, path: Path, name: str, file_id: str, folder_id: str, sha256: str
+        self,
+        path: Path,
+        name: str,
+        file_id: str,
+        folder_id: str,
+        sha256: str,
+        *,
+        mime_type: str = "video/mp4",
+        session: str | None = None,
+        save_session=None,
     ) -> str:
         size = path.stat().st_size
         if not size:
             raise DriveError("drive_empty_video")
         existing = self.get_file(file_id)
         if existing is not None:
-            return self.verify_upload(existing, file_id, folder_id, sha256, size)
-        response = self.request(
-            "POST",
-            UPLOAD,
-            params={"uploadType": "resumable", "fields": FIELDS},
-            headers={
-                "X-Upload-Content-Type": "video/mp4",
-                "X-Upload-Content-Length": str(size),
-            },
-            json={
-                "id": valid_id(file_id),
-                "name": name,
-                "mimeType": "video/mp4",
-                "parents": [valid_id(folder_id)],
-                "appProperties": {"sha256": sha256},
-            },
-        )
-        if response.status_code == 409:
-            existing = self.get_file(file_id)
-            if existing is None:
-                raise DriveError("drive_upload_reconciliation_pending", retry=True)
-            return self.verify_upload(existing, file_id, folder_id, sha256, size)
-        if not response.is_success:
-            self.body(response)
-        session = response.headers.get("Location", "")
+            return self.verify_upload(
+                existing, file_id, folder_id, sha256, size, mime_type
+            )
+        if session is None:
+            response = self.request(
+                "POST",
+                UPLOAD,
+                params={"uploadType": "resumable", "fields": FIELDS},
+                headers={
+                    "X-Upload-Content-Type": mime_type,
+                    "X-Upload-Content-Length": str(size),
+                },
+                json={
+                    "id": valid_id(file_id),
+                    "name": name,
+                    "mimeType": mime_type,
+                    "parents": [valid_id(folder_id)],
+                    "appProperties": {"sha256": sha256},
+                },
+            )
+            if response.status_code == 409:
+                existing = self.get_file(file_id)
+                if existing is None:
+                    raise DriveError("drive_upload_reconciliation_pending", retry=True)
+                return self.verify_upload(
+                    existing, file_id, folder_id, sha256, size, mime_type
+                )
+            if not response.is_success:
+                self.body(response)
+            session = response.headers.get("Location", "")
+            if save_session:
+                save_session(session)
         endpoint = urlsplit(session)
         if (
             endpoint.scheme != "https"
@@ -210,6 +231,27 @@ class Drive:
         ):
             raise DriveError("drive_invalid_upload_session")
         offset = 0
+        if save_session:
+            response = self.request(
+                "PUT",
+                session,
+                content=b"",
+                headers={"Content-Range": f"bytes */{size}"},
+            )
+            if response.status_code in {404, 410}:
+                save_session(None)
+                raise DriveError("drive_upload_session_expired", retry=True)
+            if response.status_code == 308:
+                match = re.fullmatch(
+                    r"bytes=0-(\d+)", response.headers.get("Range", "")
+                )
+                offset = int(match[1]) + 1 if match else 0
+                if offset > size:
+                    raise DriveError("drive_upload_invalid_offset")
+            else:
+                return self.verify_upload(
+                    self.body(response), file_id, folder_id, sha256, size, mime_type
+                )
         with path.open("rb") as source:
             while offset < size:
                 source.seek(offset)
@@ -222,7 +264,7 @@ class Drive:
                         session,
                         content=chunk,
                         headers={
-                            "Content-Type": "video/mp4",
+                            "Content-Type": mime_type,
                             "Content-Range": f"bytes {offset}-{offset + len(chunk) - 1}/{size}",
                         },
                     )
@@ -248,5 +290,43 @@ class Drive:
                 if response.status_code in {404, 409, 410}:
                     raise DriveError("drive_upload_reconciliation_pending", retry=True)
                 data = self.body(response)
-                return self.verify_upload(data, file_id, folder_id, sha256, size)
+                return self.verify_upload(
+                    data, file_id, folder_id, sha256, size, mime_type
+                )
         raise DriveError("drive_upload_confirmation_missing", retry=True)
+
+    def prepare_child(self, folder_id: str, parent: str, job: str, title: str) -> None:
+        name = (
+            re.sub(r"[^\w .-]", "_", title, flags=re.UNICODE).strip(" ._")[:100]
+            or "Video"
+        )
+        name += "_" + job
+        existing = self.get_file(folder_id)
+        if existing is None:
+            response = self.request(
+                "POST",
+                f"{API}/files",
+                params={"fields": FIELDS},
+                json={
+                    "id": valid_id(folder_id),
+                    "name": name,
+                    "mimeType": FOLDER_MIME,
+                    "parents": [valid_id(parent)],
+                    "appProperties": {"factory": MARKER, "job": job},
+                },
+            )
+            existing = (
+                self.get_file(folder_id)
+                if response.status_code == 409
+                else self.body(response)
+            )
+        if (
+            not existing
+            or existing.get("id") != folder_id
+            or existing.get("parents") != [parent]
+            or existing.get("mimeType") != FOLDER_MIME
+            or existing.get("trashed") is not False
+            or existing.get("appProperties", {}).get("job") != job
+            or existing.get("appProperties", {}).get("factory") != MARKER
+        ):
+            raise DriveError("drive_job_folder_invalid")

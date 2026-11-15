@@ -150,7 +150,13 @@ def complete(stage: UUID, lease: Lease, result: dict):
         )
     }
     try:
-        if row["name"].endswith("_plan"):
+        if spec.source is not None:
+            from factory.clips_api import complete_result
+
+            result = complete_result(
+                ledger, job["id"], spec, row["name"], result, outputs
+            )
+        elif row["name"].endswith("_plan"):
             plan = Plan.model_validate(result)
             if spec.provider == "openai":
                 from factory.openai_director import StoryDraft
@@ -204,7 +210,9 @@ def complete(stage: UUID, lease: Lease, result: dict):
 
 @router.post("/workers/stages/{stage}/fail", dependencies=[Depends(worker)])
 def fail(stage: UUID, body: Failure):
-    ledger.finish(str(stage), body.worker, str(body.token), error=body.code)
+    ledger.finish(
+        str(stage), body.worker, str(body.token), error=body.code, detail=body.detail
+    )
     return {"ok": True}
 
 
@@ -368,6 +376,9 @@ def drive_uploads():
 
 
 def mount(app):
+    from factory.clips_api import register
+
+    register(router, ledger, operator, reader, worker)
     app.include_router(router)
 
     @app.exception_handler(Conflict)

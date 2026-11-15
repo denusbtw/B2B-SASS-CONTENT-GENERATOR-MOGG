@@ -20,6 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.exc import OperationalError
 
 from factory.db import configured_ledger, jobs, now, stages
+from factory.clips_db import archives
 from factory.drive import Drive
 from factory.drive_oauth import DriveError, load_tokens
 from factory.storage import verified
@@ -47,6 +48,7 @@ uploads = Table(
     Column("attempts", Integer, nullable=False),
     Column("due", String(40), nullable=False, index=True),
 )
+archives.to_metadata(drive_metadata)
 LOCK = 2943518351671704
 
 
@@ -83,6 +85,7 @@ def discover(ledger) -> None:
                     stages.c.name == "package",
                     stages.c.state == "SUCCEEDED",
                     jobs.c.state == "COMPLETE",
+                    stages.c.result["real_clips"].as_boolean().is_not(True),
                     ~select(scanned.c.job_id)
                     .where(scanned.c.job_id == stages.c.job)
                     .exists(),
@@ -144,6 +147,10 @@ def folder_for(ledger, drive: Drive) -> str:
 
 
 def archive_next(ledger, drive: Drive, template: str) -> bool:
+    from factory.clips_archive import archive_next as archive_clips
+
+    if archive_clips(ledger, drive):
+        return True
     discover(ledger)
     with ledger.engine.connect() as db:
         item = (
@@ -206,7 +213,9 @@ def main():
             drive = Drive(http, load_tokens(http))
             while True:
                 try:
-                    with ledger.engine.connect() as lock:
+                    with ledger.engine.connect().execution_options(
+                        isolation_level="AUTOCOMMIT"
+                    ) as lock:
                         acquired = lock.execute(
                             text("SELECT pg_try_advisory_lock(:key)"), {"key": LOCK}
                         ).scalar_one()

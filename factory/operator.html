@@ -67,7 +67,7 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
   <fieldset class="draft stack" style="border-width:1px 0 0;margin:0;padding-inline:0">
     <legend class="muted">Завдання</legend>
     <div class="two">
-      <label class="field">Формат<select name="mode"><option value="STORY">Історія</option><option value="CLIPS">Тестовий кліп</option><option value="CARTOON_2D">2D-мультфільм</option></select></label>
+      <label class="field">Формат<select name="mode"><option value="STORY">Історія</option><option value="CLIPS">CLIPS</option><option value="CARTOON_2D">2D-мультфільм</option></select></label>
       <label class="field">Мова<select name="locale"><option value="uk">Українська</option><option value="en">English</option><option value="ru">Русский</option></select></label>
     </div>
     <div class="two" data-cartoon hidden>
@@ -80,16 +80,25 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
       <label class="field">Кількість частин<input name="parts" type="number" min="1" max="8" value="1" required></label>
     </div>
     <label class="field">Підтвердження прав<input name="evidence" maxlength="500" placeholder="Наприклад, авторський текст"></label>
-    <label class="checkbox" data-clips hidden><input name="stacked" type="checkbox"> Розділити екран</label>
+    <div data-clips hidden class="stack">
+      <label class="field">Джерело<select name="clip_source"><option value="local_file">Локальне відео</option><option value="youtube">YouTube</option><option value="demo">Синтетичне демо</option></select></label>
+      <label class="field">Файл MP4 / MOV / MKV / WebM<input name="clip_file" type="file" accept=".mp4,.mov,.mkv,.webm"></label>
+      <label class="field">YouTube URL<input name="clip_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label>
+      <label class="checkbox"><input name="clip_authorized" type="checkbox"> Я маю право завантажувати та повторно використовувати це відео</label>
+      <label class="field">Кадрування<select name="clip_framing"><option value="blurred_background">Розмите тло, повний кадр</option><option value="center_crop">Обрізання по центру</option></select></label>
+      <label class="checkbox"><input name="clip_preview" type="checkbox"> Тестовий профіль 360 × 640</label>
+      <label class="checkbox"><input name="clip_drive" type="checkbox" checked> Архівувати в Google Drive</label>
+      <label class="checkbox"><input name="stacked" type="checkbox"> Розділити екран (лише демо)</label>
+    </div>
     <div><button class="quiet" type="button" data-remove>Прибрати</button></div>
   </fieldset>
 </template>
 <script>
 "use strict";
 const el = id => document.getElementById(id);
-const modes = {STORY:"Історія", CLIPS:"Тестовий кліп", CARTOON_2D:"2D-мультфільм"};
+const modes = {STORY:"Історія", CLIPS:"CLIPS", CARTOON_2D:"2D-мультфільм"};
 const status = {CREATED:"У черзі", GENERATING:"Генерується", COMPLETE:"Готово", FAILED:"Помилка", BLOCKED:"Заблоковано", REVIEW_REQUIRED:"Потребує перевірки", SUCCEEDED:"Завершено", LEASED:"У роботі", PENDING:"Очікує", READY:"У черзі", SCHEDULED:"Заплановано", RECONCILIATION_REQUIRED:"Перевіряється", PUBLISHED:"Симульовано", CANCELLED:"Скасовано"};
-const stageNames = {story_plan:"План історії", clip_plan:"План кліпу", cartoon_plan:"План мультфільму", render:"Рендер", qa:"Перевірка", package:"Збірка пакета"};
+const stageNames = {validate_source:"Перевірка джерела",ingest_source:"Завантаження джерела",probe_source:"Метадані відео",plan_splits:"Межі частин",render_parts:"Обробка частин",validate_outputs:"Перевірка відео",archive_to_drive:"Черга архівування",story_plan:"План історії", clip_plan:"План кліпу", cartoon_plan:"План мультфільму", render:"Рендер", qa:"Перевірка", package:"Збірка пакета"};
 let token = "factory-local-operator";
 let current = "studio";
 let connected = false;
@@ -169,7 +178,9 @@ function addDraft(example = false) {
   const fragment = el("draft-template").content.cloneNode(true);
   const draft = fragment.querySelector("fieldset");
   const mode = draft.querySelector("[name=mode]");
-  mode.onchange = () => { draft.querySelector("[data-clips]").hidden = mode.value !== "CLIPS"; draft.querySelector("[data-cartoon]").hidden = mode.value !== "CARTOON_2D"; };
+  mode.onchange = () => { draft.querySelector("[data-clips]").hidden = mode.value !== "CLIPS"; draft.querySelector("[data-cartoon]").hidden = mode.value !== "CARTOON_2D";
+    draft.querySelector("[name=parts]").max = mode.value === "CLIPS" ? "50" : "8";
+    draft.querySelector("[name=prompt]").required = mode.value !== "CLIPS"; };
   const rights = draft.querySelector("[name=rights]");
   const evidence = draft.querySelector("[name=evidence]");
   rights.onchange = () => { evidence.required = ["original","authorized"].includes(rights.value); };
@@ -223,10 +234,27 @@ async function showJob(id) {
   const job = await json("jobs/" + encodeURIComponent(id));
   const body = detail(modes[job.spec.mode] || "Завдання");
   body.append(badge(job.state), node("p", job.spec.prompt), node("small", job.id, "scroll-label"));
+  if (job.spec.source) {
+    const clips = await json("clips/jobs/" + encodeURIComponent(id));
+    if (job.state === "FAILED") body.append(button("Повторити обробку",()=>json("clips/jobs/"+id+"/retry")));
+    if (clips.archive) {
+      body.append(node("p", clips.archive.state + (clips.archive.error ? ": " + clips.archive.error : "")));
+      if (clips.archive.folder_url) {
+        const link = node("a", "Папка Google Drive"); link.href=clips.archive.folder_url; link.target="_blank"; link.rel="noopener noreferrer"; body.append(link);
+      }
+      if (clips.archive.state === "ARCHIVE_FAILED") body.append(button("Повторити архівування",()=>json("clips/jobs/"+id+"/archive/retry")));
+    }
+    if (job.stages.some(stage=>stage.name==="package" && stage.state==="SUCCEEDED")) {
+      const parts=await json("clips/jobs/"+id+"/parts");
+      parts.forEach(part=>body.append(button(part.name,()=>preview(part,part.name))));
+    }
+  }
   job.stages.forEach(stage => {
     const line = node("div", undefined, "step");
     line.append(node("span", stageNames[stage.name] || stage.name), badge(stage.state));
     body.append(line);
+    if (stage.result?.error_detail) body.append(node("small",stage.result.error_detail));
+    if (stage.result?.progress) body.append(node("small",stage.result.progress));
     if (stage.error) body.append(node("small", stage.error === "provider_credit_exhausted" ? "Для цього проєкту OpenAI API вичерпано кредити. Перевір баланс у Billing." : stage.error));
   });
 }
@@ -332,9 +360,9 @@ async function renderLibrary() {
       art.setAttribute("aria-hidden", "true");
       const body = node("div", undefined, "preview-body stack");
       const info = item.review.media[index];
-      body.append(node("h3", title), badge(item.publishable ? "COMPLETE" : "BLOCKED"));
+      body.append(node("h3", title), badge(item.real_clips || item.publishable ? "COMPLETE" : "BLOCKED"));
       if (job) body.append(node("small", job.spec.prompt.slice(0, 120)));
-      if (info?.duration_seconds) body.append(node("small", info.duration_seconds + " с · MP4"));
+      if (info?.duration_seconds || info?.duration) body.append(node("small", (info.duration_seconds || info.duration) + " с · MP4"));
       const actions = node("div", undefined, "actions");
       actions.append(button("Переглянути", () => preview(part, title), "primary"));
       if (item.publishable) actions.append(button("Запланувати", () => schedule(item, index + 1)));
@@ -421,16 +449,31 @@ el("refresh-queue").onclick = event => perform(event.currentTarget, refreshQueue
 el("create").onsubmit = event => {
   event.preventDefault();
   perform(event.submitter, async () => {
-    const drafts = [...el("drafts").children].map(draft => {
+    const drafts = await Promise.all([...el("drafts").children].map(async draft => {
       const read = name => draft.querySelector("[name=" + name + "]");
+      let source;
+      const realClip = read("mode").value === "CLIPS" && read("clip_source").value !== "demo";
+      if (realClip) {
+        if (read("clip_source").value === "youtube") {
+          source = {type:"youtube",url:read("clip_url").value,authorized:read("clip_authorized").checked};
+        } else {
+          const file = read("clip_file").files[0];
+          if (!file) throw Error("Вибери відеофайл.");
+          const upload = await fetch("/api/v1/clips/sources/upload", {method:"POST",headers:{Authorization:token,"X-Filename":encodeURIComponent(file.name)},body:file});
+          const data = await upload.json();
+          if (!upload.ok) throw Error(data.detail || "Помилка завантаження");
+          source = {type:"local_file",artifact_id:data.artifact_id};
+        }
+      }
       return {
-        mode:read("mode").value, locale:read("locale").value, prompt:read("prompt").value,
+        ...(source ? {source,output:{framing:read("clip_framing").value,resolution:read("clip_preview").checked ? "360x640" : "1080x1920"},google_drive:{enabled:read("clip_drive").checked}} : {}),
+        mode:read("mode").value, locale:read("locale").value, prompt:read("prompt").value || "Video clips",
         rights:read("rights").value, evidence:read("evidence").value, parts:Number(read("parts").value),
-        synthetic_clip:read("mode").value === "CLIPS", stacked:read("stacked").checked,
+        synthetic_clip:read("mode").value === "CLIPS" && !realClip, stacked:read("stacked").checked,
         provider:read("mode").value === "CARTOON_2D" ? read("provider").value : "mock",
         duration_seconds:Number(read("duration_seconds").value)
       };
-    });
+    }));
     const result = await json("batches", {jobs:drafts});
     rememberBatch(result.id);
     notify("Додано до черги: " + result.accepted.length + (result.rejected.length ?
