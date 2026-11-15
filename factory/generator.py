@@ -47,6 +47,10 @@ def upload_file(client, path):
 def execute(client, claim):
     name = claim["name"]
     spec = JobSpec.model_validate(claim["spec"])
+    if spec.source is not None:
+        from factory.clips import execute as execute_clips
+
+        return execute_clips(client, claim)
     if name.endswith("_plan"):
         plan = plan_story(spec) if spec.provider == "openai" else DIRECTOR.plan(spec)
         return plan.model_dump(mode="json")
@@ -152,9 +156,12 @@ def tick(client, worker):
             )
         except (subprocess.TimeoutExpired, httpx.TransportError):
             request(client, "POST", path + "/fail", json={**lease, "code": "transient"})
-        except (ValueError, OSError, httpx.HTTPStatusError):
+        except (ValueError, OSError, httpx.HTTPStatusError) as exc:
             request(
-                client, "POST", path + "/fail", json={**lease, "code": "render_error"}
+                client,
+                "POST",
+                path + "/fail",
+                json={**lease, "code": "render_error", "detail": str(exc)[:500]},
             )
     return True
 

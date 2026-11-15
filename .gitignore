@@ -9,3 +9,7 @@ data/
 .mypy_cache/
 .coverage
 client_secret*.json
+
+youtube_client*.json
+youtube_token*.json
+*.fernet.key

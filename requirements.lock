@@ -38,3 +38,7 @@ typing-inspection==0.4.5
 typing_extensions==4.16.0
 tzdata==2026.6
 uvicorn==0.54.0
+yt-dlp==2026.10.26
+cffi==2.1.1
+cryptography==50.0.2
+pycparser==3.12

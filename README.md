@@ -75,3 +75,23 @@ $env:TEST_DATABASE_URL = $env:DATABASE_URL
 Place FFprobe on PATH or set `FFPROBE_BIN` to its absolute path. If absent, the worker verifies dimensions, codecs and duration by decoding via FFmpeg. `FFMPEG_BIN` overrides the executable. Otherwise the worker prefers the system FFmpeg, then the binary supplied by the locked imageio-ffmpeg package.
 
 See [architecture](docs/ARCHITECTURE.md), [decisions and gaps](docs/DECISIONS_PENDING.md), [animation capabilities](docs/ANIMATION_CAPABILITIES.md), and [integration readiness](docs/INTEGRATION_READINESS.md).
+# Real video CLIPS
+
+CLIPS accepts streamed MP4/MOV/MKV/WebM uploads or explicitly authorized YouTube
+sources, divides them into 1–50 equal-duration vertical MP4 parts using FFmpeg,
+and optionally archives each job in a dedicated Drive folder. No LLM is used.
+See [CLIPS setup, API, demonstration and recovery](docs/CLIPS.md).
+
+Offline demonstration: `python -m scripts.clips_demo --resolution 360x640`.
+Service deployments must run `python -m alembic upgrade head`.
+
+## Real YouTube publishing (opt-in)
+
+The existing publisher now supports a real YouTube Data API v3 adapter alongside
+MockPublisher. Defaults remain `PUBLISHER_PROVIDER=mock` and `YOUTUBE_ENABLED=false`.
+Live operation requires separate OAuth consent, encrypted token storage, channel
+confirmation, rights/QA and explicit per-video approval. Uploads use persistent
+resumable sessions; upload acceptance never by itself means public availability.
+See [YouTube setup, private test, scheduling and recovery](docs/YOUTUBE.md).
+Run migration `0004_youtube_publisher` before using the integration. Offline tests
+need no Google credentials. No real video was uploaded during implementation.

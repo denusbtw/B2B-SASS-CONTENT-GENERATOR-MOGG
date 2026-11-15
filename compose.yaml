@@ -5,6 +5,20 @@ x-app: &app
 x-database-env: &database-env
   DATABASE_URL: postgresql+psycopg://factory:${POSTGRES_PASSWORD:-factory-local-demo}@db:5432/factory
 
+x-youtube-env: &youtube-env
+  PUBLISHER_PROVIDER: ${PUBLISHER_PROVIDER:-mock}
+  YOUTUBE_ENABLED: ${YOUTUBE_ENABLED:-false}
+  YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+  YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+  YOUTUBE_CLIENT_FILE: ${YOUTUBE_CLIENT_FILE:-}
+  YOUTUBE_REDIRECT_URI: ${YOUTUBE_REDIRECT_URI:-http://127.0.0.1:8080/api/v1/integrations/youtube/callback}
+  YOUTUBE_TOKEN_ENCRYPTION_KEY: ${YOUTUBE_TOKEN_ENCRYPTION_KEY:-}
+  YOUTUBE_TOKEN_ENCRYPTION_KEY_FILE: ${YOUTUBE_TOKEN_ENCRYPTION_KEY_FILE:-}
+  YOUTUBE_UPLOAD_CHUNK_BYTES: ${YOUTUBE_UPLOAD_CHUNK_BYTES:-8388608}
+  YOUTUBE_REQUEST_TIMEOUT: ${YOUTUBE_REQUEST_TIMEOUT:-35}
+  YOUTUBE_MAX_ATTEMPTS: ${YOUTUBE_MAX_ATTEMPTS:-8}
+  YOUTUBE_STATUS_POLL_SECONDS: ${YOUTUBE_STATUS_POLL_SECONDS:-300}
+
 x-worker: &worker
   <<: *app
   restart: unless-stopped
@@ -17,6 +31,11 @@ x-worker: &worker
     OPENAI_STORY_MODEL: ${OPENAI_STORY_MODEL:-gpt-6-luna}
     OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
     WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN:-factory-local-worker}
+    CLIPS_MAX_SOURCE_BYTES: ${CLIPS_MAX_SOURCE_BYTES:-2147483648}
+    CLIPS_MAX_DURATION: ${CLIPS_MAX_DURATION:-7200}
+    CLIPS_MIN_PART_SECONDS: ${CLIPS_MIN_PART_SECONDS:-1}
+    CLIPS_DOWNLOAD_TIMEOUT: ${CLIPS_DOWNLOAD_TIMEOUT:-1800}
+    CLIPS_RENDER_TIMEOUT: ${CLIPS_RENDER_TIMEOUT:-3600}
 
 services:
   db:
@@ -45,16 +64,26 @@ services:
 
   api:
     <<: *app
+    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--no-access-log"]
     build: .
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
     environment:
-      <<: *database-env
+      <<: [*database-env, *youtube-env]
       OPERATOR_TOKEN: ${OPERATOR_TOKEN:-factory-local-operator}
       WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN:-factory-local-worker}
+      DRIVE_ARCHIVE_ENABLED: ${DRIVE_ARCHIVE_ENABLED:-false}
+      CLIPS_MAX_SOURCE_BYTES: ${CLIPS_MAX_SOURCE_BYTES:-2147483648}
+      ARTIFACT_MAX_BYTES: ${ARTIFACT_MAX_BYTES:-2147483648}
+      CLIPS_MAX_DURATION: ${CLIPS_MAX_DURATION:-7200}
+      CLIPS_MIN_PART_SECONDS: ${CLIPS_MIN_PART_SECONDS:-1}
+      CLIPS_MAX_CONCURRENT_UPLOADS: ${CLIPS_MAX_CONCURRENT_UPLOADS:-2}
+      CLIPS_UPLOAD_TIMEOUT: ${CLIPS_UPLOAD_TIMEOUT:-1800}
+      CLIPS_MAX_CONCURRENT_RENDERS: ${CLIPS_MAX_CONCURRENT_RENDERS:-1}
     volumes:
       - ./data/shared:/app/data/shared
+      - ${YOUTUBE_SECRETS_DIR:-./data/youtube-secrets}:/run/youtube-secrets:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -76,9 +105,11 @@ services:
     <<: *app
     command: ["python", "-m", "factory.publisher"]
     restart: unless-stopped
-    environment: *database-env
+    environment:
+      <<: [*database-env, *youtube-env]
     volumes:
       - ./data/shared:/app/data/shared:ro
+      - ${YOUTUBE_SECRETS_DIR:-./data/youtube-secrets}:/run/youtube-secrets:ro
     depends_on:
       api:
         condition: service_healthy
