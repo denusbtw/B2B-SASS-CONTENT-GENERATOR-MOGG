@@ -36,6 +36,24 @@ def max_bytes() -> int:
     return int(os.getenv("CLIPS_MAX_SOURCE_BYTES", str(2 * 1024**3)))
 
 
+MAX_YOUTUBE_HEIGHT = 1080
+MAX_YOUTUBE_WIDTH = 1920
+VIDEO_BOUNDS = f"[height<={MAX_YOUTUBE_HEIGHT}][width<={MAX_YOUTUBE_WIDTH}]"
+YOUTUBE_FORMAT = (
+    f"bv*[ext=mp4]{VIDEO_BOUNDS}+ba[ext=m4a]/b[ext=mp4]{VIDEO_BOUNDS}/b{VIDEO_BOUNDS}"
+)
+
+
+def youtube_resolution_ok(metadata: dict) -> bool:
+    width, height = metadata.get("width"), metadata.get("height")
+    return (
+        isinstance(width, int)
+        and isinstance(height, int)
+        and 0 < width <= MAX_YOUTUBE_WIDTH
+        and 0 < height <= MAX_YOUTUBE_HEIGHT
+    )
+
+
 def download(url: str, work: Path, progress=None) -> tuple[Path, dict]:
     key = youtube_id(url)
     canonical = "https://www.youtube.com/watch?v=" + key
@@ -44,6 +62,8 @@ def download(url: str, work: Path, progress=None) -> tuple[Path, dict]:
         "-m",
         "yt_dlp",
         "--ignore-config",
+        "-f",
+        YOUTUBE_FORMAT,
         "--no-playlist",
         "--no-cache-dir",
         "--socket-timeout",
@@ -83,8 +103,6 @@ def download(url: str, work: Path, progress=None) -> tuple[Path, dict]:
         str(max_bytes()),
         "--match-filter",
         f"duration <= {float(os.getenv('CLIPS_MAX_DURATION', '7200'))}",
-        "-f",
-        "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
         "--merge-output-format",
         "mp4",
         "--ffmpeg-location",

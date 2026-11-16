@@ -505,8 +505,19 @@ def test_worker_only_cache_and_source_reuse(setup, monkeypatch):
 
     client, ledger, tmp = setup
     key = storage.put(b"cached-source")
-    meta = {"youtube_id": "abcdefghijk", "title": "Authorized cached source"}
+    meta = {
+        "youtube_id": "abcdefghijk",
+        "title": "Authorized cached source",
+        "width": 1920,
+        "height": 1080,
+    }
+    oversized = storage.put(b"old-4k-download")
     with ledger.write() as db:
+        db.execute(
+            insert(sources).values(
+                sha256=oversized, metadata={**meta, "width": 3840, "height": 2160}
+            )
+        )
         db.execute(insert(sources).values(sha256=key, metadata=meta))
     assert client.get("/api/v1/clips/youtube/abcdefghijk").status_code == 401
     spec = JobSpec(

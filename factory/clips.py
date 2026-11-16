@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 
 from factory.clips_media import boundaries, probe, render_part, validate_output
 from factory.contracts import JobSpec
-from factory.ingestion import download, youtube_id
+from factory.ingestion import download, youtube_id, youtube_resolution_ok
 
 STAGES = (
     "validate_source",
@@ -78,6 +78,8 @@ def execute(client, claim):
 
             path, info = download(source.url, work, progress=progress)
             metadata = probe(path)
+            if not youtube_resolution_ok(metadata):
+                raise ValueError("YouTube source exceeds the 1920×1080 download limit")
             return {
                 "sha256": upload_file(client, path),
                 "metadata": {**info, **metadata},

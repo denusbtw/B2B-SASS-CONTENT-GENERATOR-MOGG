@@ -20,7 +20,7 @@ from factory.clips_db import archives, sources
 from factory.clips_media import probe
 from factory.contracts import JobSpec, Lease, Mode
 from factory.db import now, stages
-from factory.ingestion import max_bytes
+from factory.ingestion import max_bytes, youtube_resolution_ok
 
 
 UPLOAD_SLOTS = BoundedSemaphore(int(os.getenv("CLIPS_MAX_CONCURRENT_UPLOADS", "2")))
@@ -125,6 +125,8 @@ def register(router, ledger, operator, reader, worker):
             sources, sources.c.metadata["youtube_id"].as_string() == video_id
         )
         for row in rows:
+            if not youtube_resolution_ok(row["metadata"]):
+                continue
             try:
                 storage.verified(row["sha256"])
                 return row
