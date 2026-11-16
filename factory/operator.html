@@ -79,10 +79,11 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
     <label class="field">Текст або ідея<textarea name="prompt" required maxlength="6000" placeholder="Опиши, що має статися в ролику"></textarea></label>
     <div class="two">
       <label class="field">Права на матеріал<select name="rights"><option value="original">Власний матеріал</option><option value="authorized">Є дозвіл</option><option value="unknown">Невідомі</option><option value="denied">Немає дозволу</option></select></label>
-      <label class="field">Кількість частин<input name="parts" type="number" min="1" max="8" value="1" required></label>
+      <label class="field">Кількість кліпів<input name="parts" type="number" min="1" max="8" value="1" required></label>
     </div>
     <label class="field">Підтвердження прав<input name="evidence" maxlength="500" placeholder="Наприклад, авторський текст"></label>
     <div data-clips hidden class="stack">
+      <p class="muted">Топ-моменти · до вказаної кількості кліпів по 30–40 с на основі звуку та змін кадру.</p>
       <label class="field">Джерело<select name="clip_source"><option value="local_file">Локальне відео</option><option value="youtube">YouTube</option><option value="demo">Синтетичне демо</option></select></label>
       <label class="field">Файл MP4 / MOV / MKV / WebM<input name="clip_file" type="file" accept=".mp4,.mov,.mkv,.webm"></label>
       <label class="field">YouTube URL<input name="clip_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label>
@@ -181,7 +182,7 @@ function addDraft(example = false) {
   const draft = fragment.querySelector("fieldset");
   const mode = draft.querySelector("[name=mode]");
   mode.onchange = () => { draft.querySelector("[data-clips]").hidden = mode.value !== "CLIPS"; draft.querySelector("[data-cartoon]").hidden = mode.value !== "CARTOON_2D";
-    draft.querySelector("[name=parts]").max = mode.value === "CLIPS" ? "50" : "8";
+    draft.querySelector("[name=parts]").max = mode.value === "CLIPS" ? "12" : "8";
     draft.querySelector("[name=prompt]").required = mode.value !== "CLIPS"; };
   const rights = draft.querySelector("[name=rights]");
   const evidence = draft.querySelector("[name=evidence]");
@@ -556,7 +557,7 @@ el("create").onsubmit = event => {
         }
       }
       return {
-        ...(source ? {source,output:{framing:read("clip_framing").value,resolution:read("clip_preview").checked ? "360x640" : "1080x1920"},google_drive:{enabled:read("clip_drive").checked}} : {}),
+        ...(source ? {source,split_strategy:"highlights",output:{framing:read("clip_framing").value,resolution:read("clip_preview").checked ? "360x640" : "1080x1920"},google_drive:{enabled:read("clip_drive").checked}} : {}),
         mode:read("mode").value, locale:read("locale").value, prompt:read("prompt").value || "Video clips",
         rights:read("rights").value, evidence:read("evidence").value, parts:Number(read("parts").value),
         synthetic_clip:read("mode").value === "CLIPS" && !realClip, stacked:read("stacked").checked,

@@ -145,7 +145,14 @@ def register(router, ledger, operator, reader, worker):
             from factory.clips_media import boundaries
 
             try:
-                boundaries(info["metadata"]["duration"], spec.parts, spec.output.fps)
+                if spec.split_strategy == "equal_duration":
+                    boundaries(
+                        info["metadata"]["duration"], spec.parts, spec.output.fps
+                    )
+                elif info["metadata"]["duration"] < 30:
+                    raise ValueError(
+                        "Для топ-моментів відео має тривати щонайменше 30 секунд"
+                    )
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
         batch, ids = ledger.submit([spec.model_dump(mode="json")])
@@ -307,8 +314,27 @@ def register(router, ledger, operator, reader, worker):
 def complete_result(ledger, job, spec, name, result, outputs):
     if name == "ingest_source":
         storage.verified(result["sha256"])
+    if name == "plan_splits" and spec.split_strategy == "highlights":
+        planned = result["parts"]
+        if not 1 <= len(planned) <= spec.parts:
+            raise ValueError("Invalid highlight count")
+        end = 0.0
+        duration = outputs["probe_source"]["duration"]
+        for index, part in enumerate(planned, 1):
+            start, finish = part["start"], part["end"]
+            if (
+                part["part"] != index
+                or part["name"] != f"part_{index:02}.mp4"
+                or not end <= start < finish <= duration
+                or not 30 <= round(finish - start, 6) <= 40
+                or part["frames"] != round((finish - start) * spec.output.fps)
+            ):
+                raise ValueError("Invalid highlight interval")
+            end = finish
     if name in {"render_parts", "validate_outputs"}:
-        if len(result["parts"]) != spec.parts:
+        expected = outputs["plan_splits"]["parts"] if "plan_splits" in outputs else []
+        count = len(expected) if spec.split_strategy == "highlights" else spec.parts
+        if not 1 <= count <= spec.parts or len(result["parts"]) != count:
             raise ValueError("Part count mismatch")
         for index, part in enumerate(result["parts"], 1):
             if part["part"] != index:
@@ -331,7 +357,7 @@ def complete_result(ledger, job, spec, name, result, outputs):
             },
             "audio": "source",
             "cloud_calls": 0,
-            "split_strategy": "equal_duration",
+            "split_strategy": spec.split_strategy,
         }
         result["source_metadata_sha256"] = storage.put(
             json.dumps(result["source_metadata"], ensure_ascii=False, indent=2).encode()

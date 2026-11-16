@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 
 from factory.clips_media import boundaries, probe, render_part, validate_output
 from factory.contracts import JobSpec
+from factory.highlights import analyze
 from factory.ingestion import download, youtube_id, youtube_resolution_ok
 
 STAGES = (
@@ -44,10 +45,12 @@ def execute(client, claim):
         if source.type == "local_file":
             return request(client, "GET", f"/clips/sources/{source.artifact_id}").json()
         return {"type": "youtube", "url": source.url, "authorized": True}
-    if name == "plan_splits":
+    if name == "plan_splits" and spec.split_strategy == "equal_duration":
         return {
             "parts": boundaries(
-                outputs["probe_source"]["duration"], spec.parts, spec.output.fps
+                outputs["probe_source"]["duration"],
+                spec.parts,
+                spec.output.fps,
             )
         }
     if name in {"package", "archive_to_drive"}:
@@ -89,6 +92,14 @@ def execute(client, claim):
             path = work / "source"
             fetch(client, key, path)
             return {**outputs["ingest_source"]["metadata"], **probe(path)}
+        if name == "plan_splits":
+            path = work / "source"
+            fetch(client, key, path)
+            return {
+                "parts": analyze(
+                    path, outputs["probe_source"], spec.parts, spec.output.fps
+                )
+            }
         parts = outputs["plan_splits"]["parts"]
         if name == "render_parts":
             # Persist each finished part through a fenced checkpoint. A resumed claim
@@ -97,7 +108,7 @@ def execute(client, claim):
             source_path = work / "source"
             width, height = map(int, spec.output.resolution.split("x"))
             estimated_output = (
-                outputs["probe_source"]["duration"]
+                sum(part["end"] - part["start"] for part in parts)
                 * width
                 * height
                 * spec.output.fps

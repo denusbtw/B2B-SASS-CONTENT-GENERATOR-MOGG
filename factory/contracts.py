@@ -65,7 +65,7 @@ class JobSpec(Contract):
     evidence: str = Field(default="", max_length=500)
     parts: int = Field(default=1, ge=1, le=50, strict=True)
     source: ClipSource | None = None
-    split_strategy: Literal["equal_duration"] = "equal_duration"
+    split_strategy: Literal["equal_duration", "highlights"] = "equal_duration"
     output: ClipOutput = Field(default_factory=ClipOutput)
     google_drive: ClipDrive = Field(default_factory=ClipDrive)
     stacked: bool = False
@@ -79,6 +79,8 @@ class JobSpec(Contract):
     def validate_live(self):
         if not self.source and "prompt" not in self.model_fields_set:
             raise ValueError("Prompt is required for non-source jobs")
+        if self.split_strategy == "highlights" and (not self.source or self.parts > 12):
+            raise ValueError("Top moments require a real source and at most 12 clips")
         if self.source:
             if (
                 self.mode != Mode.CLIPS
