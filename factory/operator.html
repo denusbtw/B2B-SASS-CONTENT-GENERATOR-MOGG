@@ -56,8 +56,10 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
 </div>
 <dialog id="settings" aria-labelledby="settings-title">
   <form id="connect" class="stack">
-    <div class="row"><h2 id="settings-title">Доступ до студії</h2><button type="button" data-close aria-label="Закрити">×</button></div>
+    <div class="row"><h2 id="settings-title">Налаштування та доступ</h2><button type="button" data-close aria-label="Закрити">×</button></div>
     <label class="field">Токен оператора<input type="password" id="token" autocomplete="off" required></label>
+    <p id="runtime-info" class="muted"></p>
+    <button type="button" id="runtime-check">Перевірити локальний AI</button>
     <p id="connect-error" role="alert" hidden></p><button class="primary">Підключити</button>
   </form>
 </dialog>
@@ -69,29 +71,46 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
   <fieldset class="draft stack" style="border-width:1px 0 0;margin:0;padding-inline:0">
     <legend class="muted">Завдання</legend>
     <div class="two">
-      <label class="field">Формат<select name="mode"><option value="STORY">Історія</option><option value="CLIPS">CLIPS</option><option value="CARTOON_2D">2D-мультфільм</option></select></label>
+      <label class="field">Формат<select name="mode"><option value="CLIPS">Нарізки</option></select></label>
       <label class="field">Мова<select name="locale"><option value="uk">Українська</option><option value="en">English</option><option value="ru">Русский</option></select></label>
     </div>
     <div class="two" data-cartoon hidden>
       <label class="field">Режим мультфільму<select name="provider"><option value="mock">Демо</option><option value="openai">OpenAI + озвучка</option></select></label>
       <label class="field">Секунд на частину<input name="duration_seconds" type="number" min="30" max="180" value="45"></label>
     </div>
-    <label class="field">Текст або ідея<textarea name="prompt" required maxlength="6000" placeholder="Опиши, що має статися в ролику"></textarea></label>
+    <label class="field">Назва завдання (необов’язково)<textarea name="prompt" maxlength="6000" placeholder="Наприклад: найкращі моменти інтерв’ю"></textarea></label>
     <div class="two">
       <label class="field">Права на матеріал<select name="rights"><option value="original">Власний матеріал</option><option value="authorized">Є дозвіл</option><option value="unknown">Невідомі</option><option value="denied">Немає дозволу</option></select></label>
       <label class="field">Кількість кліпів<input name="parts" type="number" min="1" max="8" value="1" required></label>
     </div>
     <label class="field">Підтвердження прав<input name="evidence" maxlength="500" placeholder="Наприклад, авторський текст"></label>
     <div data-clips hidden class="stack">
-      <p class="muted">Топ-моменти · до вказаної кількості кліпів по 30–40 с на основі звуку та змін кадру.</p>
-      <label class="field">Джерело<select name="clip_source"><option value="local_file">Локальне відео</option><option value="youtube">YouTube</option><option value="demo">Синтетичне демо</option></select></label>
+      <label class="field">Результат<select name="clip_mode"><option value="shorts">Shorts · 9:16</option><option value="longs">Longs · 16:9 · зібрати інтервали</option></select></label>
+      <label class="field">Інтервали Longs у секундах<input name="long_intervals" placeholder="0-30, 60-120"></label>
+      <label class="field">Відбір<select name="clip_analysis"><option value="semantic">Текст і зміст · Whisper + локальний AI</option><option value="highlights">Звук і зміни кадру · швидкий</option></select></label>
+      <p class="muted">До вказаної кількості моментів. Перший запуск розпізнавання завантажує модель.</p>
+      <label class="field">Джерело<select name="clip_source"><option value="local_file">Локальне відео</option><option value="youtube">YouTube</option><option value="twitch">Twitch VOD</option></select></label>
       <label class="field">Файл MP4 / MOV / MKV / WebM<input name="clip_file" type="file" accept=".mp4,.mov,.mkv,.webm"></label>
-      <label class="field">YouTube URL<input name="clip_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label>
+      <label class="field">YouTube / Twitch URL<input name="clip_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label>
       <label class="checkbox"><input name="clip_authorized" type="checkbox"> Я маю право завантажувати та повторно використовувати це відео</label>
-      <label class="field">Кадрування<select name="clip_framing"><option value="blurred_background">Розмите тло, повний кадр</option><option value="center_crop">Обрізання по центру</option></select></label>
-      <label class="checkbox"><input name="clip_preview" type="checkbox"> Тестовий профіль 360 × 640</label>
+      <div class="two">
+        <label class="field">Якість посилання<select name="clip_quality"><option value="720">720p</option><option value="1080">1080p</option><option value="480">480p</option></select></label>
+        <label class="field">Інтервал посилання<select name="clip_interval"><option value="1800">Перші 30 хвилин</option><option value="600">Перші 10 хвилин</option><option value="3600">Перші 60 хвилин</option></select></label>
+      </div>
+      <button type="button" class="quiet" data-probe>Перевірити джерело</button>
+      <p class="muted" data-source-info>Перш ніж запускати, перевір назву та тривалість джерела.</p>
+      <div class="two">
+        <label class="field">Мінімум секунд<input name="clip_min" type="number" min="20" max="60" value="20"></label>
+        <label class="field">Максимум секунд<input name="clip_max" type="number" min="20" max="60" value="60"></label>
+      </div>
+      <label class="field">Мова мовлення<select name="clip_language"><option value="">Визначити автоматично</option><option value="uk">Українська</option><option value="en">English</option><option value="ru">Русский</option><option value="es">Español</option></select></label>
+      <label class="checkbox"><input name="clip_captions" type="checkbox" checked> Субтитри з підсвічуванням слів</label>
+      <label class="field">Кадрування<select name="clip_framing"><option value="blurred_background">Розмите тло, повний кадр</option><option value="center_crop">Обрізання по центру</option><option value="gameplay_split">Відео зверху + фон знизу</option></select></label>
+      <label class="field">Фонове відео для розділеного екрана<input name="clip_background" type="file" accept=".mp4,.mov,.mkv,.webm"></label>
+      <label class="checkbox"><input name="background_authorized" type="checkbox"> Маю право використовувати фонове відео</label>
+      <label class="checkbox"><input name="clip_preview" type="checkbox"> Економний рендер: Shorts 360p / Longs 720p</label>
       <label class="checkbox"><input name="clip_drive" type="checkbox" checked> Архівувати в Google Drive</label>
-      <label class="checkbox"><input name="stacked" type="checkbox"> Розділити екран (лише демо)</label>
+      <input name="stacked" type="checkbox" hidden>
     </div>
     <div><button class="quiet" type="button" data-remove>Прибрати</button></div>
   </fieldset>
@@ -101,7 +120,7 @@ main{width:min(100%,1190px);margin:0 auto;padding:2rem clamp(1rem,4vw,3rem) 4rem
 const el = id => document.getElementById(id);
 const modes = {STORY:"Історія", CLIPS:"CLIPS", CARTOON_2D:"2D-мультфільм"};
 const status = {CREATED:"У черзі", GENERATING:"Генерується", COMPLETE:"Готово", FAILED:"Помилка", BLOCKED:"Заблоковано", REVIEW_REQUIRED:"Потребує перевірки", SUCCEEDED:"Завершено", LEASED:"У роботі", PENDING:"Очікує", READY:"У черзі", SCHEDULED:"Заплановано", RECONCILIATION_REQUIRED:"Перевіряється", PUBLISHED:"Симульовано", CANCELLED:"Скасовано"};
-const stageNames = {validate_source:"Перевірка джерела",ingest_source:"Завантаження джерела",probe_source:"Метадані відео",plan_splits:"Межі частин",render_parts:"Обробка частин",validate_outputs:"Перевірка відео",archive_to_drive:"Черга архівування",story_plan:"План історії", clip_plan:"План кліпу", cartoon_plan:"План мультфільму", render:"Рендер", qa:"Перевірка", package:"Збірка пакета"};
+const stageNames = {transcribe_audio:"Розпізнавання мовлення",validate_source:"Перевірка джерела",ingest_source:"Завантаження джерела",probe_source:"Метадані відео",plan_splits:"Межі частин",render_parts:"Обробка частин",validate_outputs:"Перевірка відео",archive_to_drive:"Черга архівування",story_plan:"План історії", clip_plan:"План кліпу", cartoon_plan:"План мультфільму", render:"Рендер", qa:"Перевірка", package:"Збірка пакета"};
 let token = "factory-local-operator";
 let current = "studio";
 let connected = false;
@@ -181,18 +200,50 @@ function addDraft(example = false) {
   const fragment = el("draft-template").content.cloneNode(true);
   const draft = fragment.querySelector("fieldset");
   const mode = draft.querySelector("[name=mode]");
+  draft.querySelector("[data-probe]").onclick = event => perform(event.currentTarget, async () => {
+    const read = name => draft.querySelector("[name=" + name + "]");
+    if (!["youtube","twitch"].includes(read("clip_source").value)) {
+      const file = read("clip_file").files[0];
+      if (!file) throw Error("Вибери локальний файл.");
+      draft.querySelector("[data-source-info]").textContent = file.name + " · " + (file.size/1048576).toFixed(1) + " MB. Тривалість перевіряється під час завантаження.";
+      return;
+    }
+    const source = {type:read("clip_source").value,url:read("clip_url").value,authorized:read("clip_authorized").checked,quality:read("clip_quality").value,end_seconds:Number(read("clip_interval").value)};
+    const info = await json("clips/probe", source);
+    draft.querySelector("[data-source-info]").textContent = info.title + " · " + Math.round(info.source_duration/60) + " хв · обробка " + Math.round(info.duration/60) + " хв · " + info.actual_height + "p";
+  });
   mode.onchange = () => { draft.querySelector("[data-clips]").hidden = mode.value !== "CLIPS"; draft.querySelector("[data-cartoon]").hidden = mode.value !== "CARTOON_2D";
     draft.querySelector("[name=parts]").max = mode.value === "CLIPS" ? "12" : "8";
     draft.querySelector("[name=prompt]").required = mode.value !== "CLIPS"; };
+  const syncDraft = () => {
+    const read = name => draft.querySelector("[name=" + name + "]");
+    const longs = read("clip_mode").value === "longs";
+    const remote = ["youtube", "twitch"].includes(read("clip_source").value);
+    if (longs && read("clip_framing").value === "gameplay_split") read("clip_framing").value = "blurred_background";
+    const show = (name, visible) => { read(name).closest("label").hidden = !visible; };
+    show("long_intervals", longs); show("parts", !longs); show("clip_analysis", !longs);
+    show("clip_min", !longs); show("clip_max", !longs);
+    show("clip_file", !remote); show("clip_url", remote); show("clip_authorized", remote);
+    show("clip_quality", remote); show("clip_interval", remote);
+    const split = read("clip_framing").value === "gameplay_split";
+    show("clip_background", split); show("background_authorized", split);
+    read("clip_framing").querySelector('[value="gameplay_split"]').disabled = longs;
+  };
+  for (const name of ["clip_mode", "clip_source", "clip_framing"]) {
+    draft.querySelector("[name=" + name + "]").onchange = syncDraft;
+  }
+  syncDraft();
   const rights = draft.querySelector("[name=rights]");
   const evidence = draft.querySelector("[name=evidence]");
   rights.onchange = () => { evidence.required = ["original","authorized"].includes(rights.value); };
   rights.onchange();
   draft.querySelector("[data-remove]").onclick = () => { draft.remove(); updateDrafts(); };
   if (example) {
-    draft.querySelector("textarea").value = "На горищі я знайшов лист, який дід написав мені тридцять років тому.";
+    draft.querySelector("textarea").value = "";
     evidence.value = "Авторський тестовий сюжет";
   }
+  mode.onchange();
+  draft.querySelector("[name=parts]").value = "5";
   el("drafts").append(fragment);
   updateDrafts();
 }
@@ -364,6 +415,7 @@ async function renderLibrary() {
       const body = node("div", undefined, "preview-body stack");
       const info = item.review.media[index];
       body.append(node("h3", title), badge(item.real_clips || item.publishable ? "COMPLETE" : "BLOCKED"));
+      if (item.analysis) body.append(node("small", "Відбір: " + item.analysis));
       if (job) body.append(node("small", job.spec.prompt.slice(0, 120)));
       if (info?.duration_seconds || info?.duration) body.append(node("small", (info.duration_seconds || info.duration) + " с · MP4"));
       const actions = node("div", undefined, "actions");
@@ -535,6 +587,10 @@ el("connect").onsubmit = async event => {
     else notify(error.message, "bad");
   }
 };
+el("runtime-check").onclick = event => perform(event.currentTarget, async () => {
+  const info = await json("clips/runtime");
+  el("runtime-info").textContent = "Whisper: " + info.whisper_model + " (CPU int8). Ollama: " + info.ollama_model + " — " + info.ollama_state + (info.setup ? ". Налаштування: " + info.setup : "");
+});
 el("add").onclick = () => addDraft();
 el("refresh-queue").onclick = event => perform(event.currentTarget, refreshQueue);
 el("create").onsubmit = event => {
@@ -542,11 +598,17 @@ el("create").onsubmit = event => {
   perform(event.submitter, async () => {
     const drafts = await Promise.all([...el("drafts").children].map(async draft => {
       const read = name => draft.querySelector("[name=" + name + "]");
-      let source;
+      let source, background;
+      const longs = read("clip_mode").value === "longs";
+      const intervals = longs ? read("long_intervals").value.split(",").map(text => {
+        const match = text.trim().match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
+        if (!match) throw Error("Інтервали мають вигляд: 0-30, 60-120. Час рахується від початку обробленого джерела.");
+        return {start:Number(match[1]),end:Number(match[2])};
+      }) : [];
       const realClip = read("mode").value === "CLIPS" && read("clip_source").value !== "demo";
       if (realClip) {
-        if (read("clip_source").value === "youtube") {
-          source = {type:"youtube",url:read("clip_url").value,authorized:read("clip_authorized").checked};
+        if (["youtube","twitch"].includes(read("clip_source").value)) {
+          source = {type:read("clip_source").value,url:read("clip_url").value,authorized:read("clip_authorized").checked,quality:read("clip_quality").value,end_seconds:Number(read("clip_interval").value)};
         } else {
           const file = read("clip_file").files[0];
           if (!file) throw Error("Вибери відеофайл.");
@@ -556,10 +618,18 @@ el("create").onsubmit = event => {
           source = {type:"local_file",artifact_id:data.artifact_id};
         }
       }
+      if (read("clip_framing").value === "gameplay_split") {
+        const file = read("clip_background").files[0];
+        if (!file || !read("background_authorized").checked) throw Error("Обери фоновий файл і підтвердь право його використовувати.");
+        const upload = await fetch("/api/v1/clips/sources/upload", {method:"POST",headers:{Authorization:token,"X-Filename":encodeURIComponent(file.name)},body:file});
+        const data = await upload.json();
+        if (!upload.ok) throw Error(data.detail || "Помилка завантаження фону");
+        background = data.artifact_id;
+      }
       return {
-        ...(source ? {source,split_strategy:"highlights",output:{framing:read("clip_framing").value,resolution:read("clip_preview").checked ? "360x640" : "1080x1920"},google_drive:{enabled:read("clip_drive").checked}} : {}),
+        ...(source ? {source,split_strategy:longs ? "manual" : read("clip_analysis").value,long_intervals:intervals,clip_min_seconds:Number(read("clip_min").value),clip_max_seconds:Number(read("clip_max").value),language_override:read("clip_language").value || null,captions:read("clip_captions").checked,output:{background_artifact_id:background || null,background_authorized:read("background_authorized").checked,framing:read("clip_framing").value,aspect_ratio:longs ? "16:9" : "9:16",resolution:longs ? (read("clip_preview").checked ? "1280x720" : "1920x1080") : (read("clip_preview").checked ? "360x640" : "1080x1920")},google_drive:{enabled:read("clip_drive").checked}} : {}),
         mode:read("mode").value, locale:read("locale").value, prompt:read("prompt").value || "Video clips",
-        rights:read("rights").value, evidence:read("evidence").value, parts:Number(read("parts").value),
+        rights:read("rights").value, evidence:read("evidence").value, parts:longs ? 1 : Number(read("parts").value),
         synthetic_clip:read("mode").value === "CLIPS" && !realClip, stacked:read("stacked").checked,
         provider:read("mode").value === "CARTOON_2D" ? read("provider").value : "mock",
         duration_seconds:Number(read("duration_seconds").value)

@@ -103,20 +103,70 @@ def boundaries(duration: float, parts: int, fps: int) -> list[dict]:
 
 
 def render_part(
-    source: Path, output: Path, part: dict, profile: ClipOutput, metadata: dict
+    source: Path,
+    output: Path,
+    part: dict,
+    profile: ClipOutput,
+    metadata: dict,
+    subtitle: Path | None = None,
+    background: Path | None = None,
 ):
     w, h = map(int, profile.resolution.split("x"))
     # Normalize sample aspect ratio before framing; never stretch the displayed frame.
     prefix = "scale=trunc(iw*sar/2)*2:ih,setsar=1"
     fill = f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
-    if profile.framing == "center_crop":
-        filters = f"[0:v:0]{prefix},{fill},fps={profile.fps},format=yuv420p[v]"
+    if profile.framing == "gameplay_split":
+        if background is None:
+            raise ValueError("Upload and authorize a gameplay/background video first")
+        top = round(h * profile.split_ratio / 2) * 2
+        bottom = h - top
+        filters = (
+            f"[0:v:0]{prefix},scale={w}:{top}:force_original_aspect_ratio=increase,crop={w}:{top},setsar=1,fps={profile.fps}[top];"
+            f"[1:v:0]scale={w}:{bottom}:force_original_aspect_ratio=increase,crop={w}:{bottom},setsar=1,fps={profile.fps}[bottom];"
+            "[top][bottom]vstack=inputs=2,format=yuv420p,setsar=1[v]"
+        )
+    elif profile.framing == "center_crop":
+        filters = f"[0:v:0]{prefix},{fill},fps={profile.fps},format=yuv420p,setsar=1[v]"
     else:
         filters = (
             f"[0:v:0]{prefix},split=2[bg][fg];[bg]{fill},boxblur=20:2[b];"
             f"[fg]scale={w}:{h}:force_original_aspect_ratio=decrease[f];"
-            f"[b][f]overlay=(W-w)/2:(H-h)/2,fps={profile.fps},format=yuv420p[v]"
+            f"[b][f]overlay=(W-w)/2:(H-h)/2,fps={profile.fps},format=yuv420p,setsar=1[v]"
         )
+    if part.get("intervals"):
+        segments = []
+        inputs = []
+        has_audio = bool(metadata["audio_codec"])
+        for i, interval in enumerate(part["intervals"]):
+            start, end = interval["start"], interval["end"]
+            segments.append(
+                f"[0:v:0]trim=start={start}:end={end},setpts=PTS-STARTPTS,fps={profile.fps}[lv{i}]"
+            )
+            inputs.append(f"[lv{i}]")
+            if has_audio:
+                segments.append(
+                    f"[0:a:0]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[la{i}]"
+                )
+                inputs.append(f"[la{i}]")
+        montage = "[montage][concat_audio]" if has_audio else "[montage]"
+        segments.append(
+            "".join(inputs)
+            + f"concat=n={len(part['intervals'])}:v=1:a={int(has_audio)}"
+            + montage
+        )
+        if has_audio:
+            segments.append(
+                "[concat_audio]aresample=async=1:first_pts=0,loudnorm=I=-16:TP=-1.5:LRA=11,apad[montage_audio]"
+            )
+        filters = ";".join(segments) + ";" + filters.replace("[0:v:0]", "[montage]")
+    if subtitle is not None:
+        filters = filters.replace("[v]", "[framed]")
+        style = (
+            ""
+            if subtitle.suffix == ".ass"
+            else ":force_style='FontName=DejaVu Sans,FontSize=19,Alignment=2,MarginV=34,Outline=2'"
+        )
+        filters += f";[framed]subtitles={subtitle.name}{style}[v]"
     duration = part["end"] - part["start"]
     # Output seeking with accurate decoding; trim audio/video from the same source clock.
     args = [
@@ -132,7 +182,7 @@ def render_part(
         "-ss",
         str(part["start"]),
         "-i",
-        str(source),
+        str(source.resolve()),
         "-filter_complex_threads",
         "1",
         "-filter_complex",
@@ -158,15 +208,27 @@ def render_part(
         "-b:a",
         "160k",
         "-af",
-        "aresample=async=1:first_pts=0,alimiter=limit=0.95:level=false,apad",
+        "aresample=async=1:first_pts=0,loudnorm=I=-16:TP=-1.5:LRA=11,apad",
         "-movflags",
         "+faststart",
-        str(output),
+        str(output.resolve()),
     ]
+    if part.get("intervals"):
+        af = args.index("-af")
+        del args[af : af + 2]
+        at = args.index("0:a:0?")
+        if metadata["audio_codec"]:
+            args[at] = "[montage_audio]"
+        else:
+            del args[at - 1 : at + 1]
+    if background is not None:
+        at = args.index("-filter_complex_threads")
+        args[at:at] = ["-stream_loop", "-1", "-i", str(background.resolve())]
     if not Path(args[0]).is_file():
         raise ValueError("FFmpeg executable is unavailable")
     result = subprocess.run(
         args,
+        cwd=source.parent,
         capture_output=True,
         timeout=int(os.getenv("CLIPS_RENDER_TIMEOUT", "3600")),
     )

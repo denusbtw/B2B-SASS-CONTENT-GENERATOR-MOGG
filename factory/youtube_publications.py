@@ -436,7 +436,16 @@ def execute_locked(ledger, adapter, key):
 
     try:
         guard()
-        path = check_source(ledger, snapshot) if not row.post_id else None
+        from_drive = os.getenv("YOUTUBE_SOURCE_BACKEND", "local") == "drive"
+        path = (
+            check_source(ledger, snapshot, verify_artifact=not from_drive)
+            if not row.post_id
+            else None
+        )
+        if from_drive and not row.post_id:
+            from factory.drive_source import resolve
+
+            path = resolve(ledger, snapshot, adapter.http)
         if isinstance(adapter.tokens, AccessTokens):
             adapter.tokens.revision = (
                 connection(ledger)["revision"]

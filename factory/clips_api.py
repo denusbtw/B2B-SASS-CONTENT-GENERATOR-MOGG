@@ -6,6 +6,7 @@ import anyio
 import json
 import os
 import shutil
+import subprocess
 from threading import BoundedSemaphore
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -18,7 +19,7 @@ from sqlalchemy import insert, select, update
 from factory import storage
 from factory.clips_db import archives, sources
 from factory.clips_media import probe
-from factory.contracts import JobSpec, Lease, Mode
+from factory.contracts import ClipSource, JobSpec, Lease, Mode
 from factory.db import now, stages
 from factory.ingestion import max_bytes, youtube_resolution_ok
 
@@ -115,6 +116,58 @@ def register(router, ledger, operator, reader, worker):
             if temporary:
                 temporary.unlink(missing_ok=True)
 
+    @router.post("/clips/probe", dependencies=[Depends(operator)])
+    def source_probe(source: ClipSource):
+        from factory.ingestion import probe_remote
+
+        if source.type == "local_file":
+            return source_info(source.artifact_id)["metadata"]
+        try:
+            return probe_remote(
+                source.url or "",
+                source.quality,
+                source.start_seconds,
+                source.end_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(
+                504, "Source probe timed out; retry or use a local file"
+            ) from None
+        except (ValueError, OSError) as exc:
+            raise HTTPException(422, str(exc)) from None
+
+    @router.get("/clips/runtime", dependencies=[Depends(operator)])
+    def runtime_status():
+        # Runtime configuration only; no token, client secret or OAuth session data.
+        import httpx
+
+        root = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
+        model = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+        available = False
+        state = "unreachable"
+        try:
+            with httpx.Client(timeout=3, trust_env=False) as http:
+                response = http.get(root + "/api/tags", follow_redirects=False)
+                response.raise_for_status()
+                models = response.json().get("models", [])
+                available = any(
+                    item.get("name") in {model, model + ":latest"} for item in models
+                )
+                state = "ready" if available else "model_missing"
+        except (httpx.HTTPError, ValueError, KeyError):
+            pass
+        return {
+            "whisper_model": os.getenv("WHISPER_MODEL", "small"),
+            "whisper_device": "cpu-int8",
+            "ollama_model": model,
+            "ollama_state": state,
+            "fallback": not available,
+            "setup": None
+            if available
+            else "docker compose --profile local-ai up -d ollama; docker compose exec ollama ollama pull "
+            + model,
+        }
+
     @router.get("/clips/sources/{key}", dependencies=[Depends(reader)])
     def get_source(key: str):
         return source_info(key)
@@ -140,6 +193,8 @@ def register(router, ledger, operator, reader, worker):
             raise HTTPException(
                 422, "Real CLIPS source required; use batches for synthetic demos"
             )
+        if os.getenv("CLIPS_ONLY", "false").lower() == "true" and not spec.rights_pass:
+            raise HTTPException(422, "Confirm source reuse rights and provide evidence")
         if spec.source.type == "local_file":
             info = source_info(spec.source.artifact_id)
             from factory.clips_media import boundaries
@@ -149,7 +204,11 @@ def register(router, ledger, operator, reader, worker):
                     boundaries(
                         info["metadata"]["duration"], spec.parts, spec.output.fps
                     )
-                elif info["metadata"]["duration"] < 30:
+                elif spec.split_strategy in {"semantic", "highlights"} and info[
+                    "metadata"
+                ]["duration"] < (
+                    spec.clip_min_seconds if spec.split_strategy == "semantic" else 30
+                ):
                     raise ValueError(
                         "Для топ-моментів відео має тривати щонайменше 30 секунд"
                     )
@@ -225,6 +284,8 @@ def register(router, ledger, operator, reader, worker):
         parts = package(job)["parts"]
         if not 1 <= part <= len(parts):
             raise HTTPException(404, "Unknown part")
+        if parts[part - 1].get("deleted"):
+            raise HTTPException(404, "Part was removed")
         try:
             return FileResponse(
                 storage.verified(parts[part - 1]["sha256"]),
@@ -301,7 +362,12 @@ def register(router, ledger, operator, reader, worker):
     def checkpoint(stage: UUID, lease: Lease, result: dict):
         with ledger.write() as db:
             row = ledger.owned(db, str(stage), lease.worker, str(lease.token))
-            if row.name not in {"render_parts", "ingest_source"}:
+            if row.name not in {
+                "render_parts",
+                "ingest_source",
+                "transcribe_audio",
+                "plan_splits",
+            }:
                 raise HTTPException(422, "Only CLIPS render checkpoints are supported")
             for part in result.get("parts", []):
                 storage.verified(part["sha256"])
@@ -314,7 +380,26 @@ def register(router, ledger, operator, reader, worker):
 def complete_result(ledger, job, spec, name, result, outputs):
     if name == "ingest_source":
         storage.verified(result["sha256"])
-    if name == "plan_splits" and spec.split_strategy == "highlights":
+    if name == "transcribe_audio" and result.get("status") == "TRANSCRIBED":
+        for key in result["exports"].values():
+            storage.verified(key)
+    if name == "plan_splits" and spec.split_strategy == "manual":
+        expected = [s.model_dump() for s in spec.long_intervals]
+        parts = result["parts"]
+        if (
+            len(parts) != 1
+            or parts[0].get("intervals") != expected
+            or any(s["end"] > outputs["probe_source"]["duration"] for s in expected)
+        ):
+            raise ValueError("Invalid Longs assembly intervals")
+        total = sum(round((s["end"] - s["start"]) * spec.output.fps) for s in expected)
+        if (
+            parts[0]["frames"] != total
+            or parts[0]["start"] != 0
+            or abs(parts[0]["end"] - total / spec.output.fps) > 1e-6
+        ):
+            raise ValueError("Invalid Longs duration")
+    if name == "plan_splits" and spec.split_strategy in {"highlights", "semantic"}:
         planned = result["parts"]
         if not 1 <= len(planned) <= spec.parts:
             raise ValueError("Invalid highlight count")
@@ -326,14 +411,22 @@ def complete_result(ledger, job, spec, name, result, outputs):
                 part["part"] != index
                 or part["name"] != f"part_{index:02}.mp4"
                 or not end <= start < finish <= duration
-                or not 30 <= round(finish - start, 6) <= 40
+                or not (
+                    spec.clip_min_seconds if spec.split_strategy == "semantic" else 30
+                )
+                <= round(finish - start, 6)
+                <= (spec.clip_max_seconds if spec.split_strategy == "semantic" else 40)
                 or part["frames"] != round((finish - start) * spec.output.fps)
             ):
                 raise ValueError("Invalid highlight interval")
             end = finish
     if name in {"render_parts", "validate_outputs"}:
         expected = outputs["plan_splits"]["parts"] if "plan_splits" in outputs else []
-        count = len(expected) if spec.split_strategy == "highlights" else spec.parts
+        count = (
+            len(expected)
+            if spec.split_strategy in {"highlights", "semantic"}
+            else spec.parts
+        )
         if not 1 <= count <= spec.parts or len(result["parts"]) != count:
             raise ValueError("Part count mismatch")
         for index, part in enumerate(result["parts"], 1):
@@ -358,6 +451,14 @@ def complete_result(ledger, job, spec, name, result, outputs):
             "audio": "source",
             "cloud_calls": 0,
             "split_strategy": spec.split_strategy,
+            "analysis": outputs["plan_splits"].get(
+                "analyzer",
+                "equal_duration"
+                if spec.split_strategy == "equal_duration"
+                else "audio_visual_heuristic",
+            ),
+            "language": outputs.get("transcribe_audio", {}).get("language"),
+            "transcript": outputs.get("transcribe_audio", {}).get("exports"),
         }
         result["source_metadata_sha256"] = storage.put(
             json.dumps(result["source_metadata"], ensure_ascii=False, indent=2).encode()

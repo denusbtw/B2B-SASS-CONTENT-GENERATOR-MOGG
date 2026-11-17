@@ -135,7 +135,13 @@ class Ledger:
                 from factory.clips import STAGES
 
                 dag = (
-                    STAGES
+                    tuple(
+                        s
+                        for s in STAGES
+                        if s != "transcribe_audio"
+                        or spec.get("split_strategy") == "semantic"
+                        or (spec.get("long_intervals") and spec.get("captions"))
+                    )
                     if spec.get("source") and spec["mode"] == "CLIPS"
                     else DAGS[spec["mode"]]
                 )

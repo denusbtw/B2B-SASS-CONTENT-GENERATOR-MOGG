@@ -1,0 +1,6 @@
+
+# Optional: Docker Desktop/WSL2 must have working NVIDIA GPU support.
+# Only Ollama uses CUDA; Whisper remains CPU int8 and cannot compete for VRAM.
+services:
+  ollama:
+    gpus: all

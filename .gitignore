@@ -1,3 +1,4 @@
+
 .venv/
 __pycache__/
 *.py[cod]
@@ -9,7 +10,10 @@ data/
 .mypy_cache/
 .coverage
 client_secret*.json
-
 youtube_client*.json
 youtube_token*.json
 *.fernet.key
+client.json
+token.json
+.secrets/
+secrets/

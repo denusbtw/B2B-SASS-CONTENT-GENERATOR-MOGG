@@ -508,6 +508,9 @@ def test_worker_only_cache_and_source_reuse(setup, monkeypatch):
     meta = {
         "youtube_id": "abcdefghijk",
         "title": "Authorized cached source",
+        "requested_quality": "720",
+        "interval_start": 0,
+        "interval_end": 1800,
         "width": 1920,
         "height": 1080,
     }
@@ -540,3 +543,113 @@ def test_worker_only_cache_and_source_reuse(setup, monkeypatch):
             },
         )
         assert result["sha256"] == key
+
+
+def test_gameplay_split_preserves_source_audio(setup):
+    _, _, tmp = setup
+    source = fixture_video(tmp / "main.mp4", 2)
+    background = fixture_video(tmp / "bg.mp4", 1, False)
+    info = render_part(
+        source,
+        tmp / "split.mp4",
+        boundaries(2, 1, 30)[0],
+        ClipOutput(
+            resolution="360x640",
+            preset="ultrafast",
+            framing="gameplay_split",
+            background_artifact_id="a" * 64,
+            background_authorized=True,
+        ),
+        probe(source),
+        background=background,
+    )
+    assert info["audio_codec"] == "aac" and info["duration"] == pytest.approx(
+        2, abs=0.12
+    )
+    assert info["width"] == 360 and info["height"] == 640
+
+
+def test_semantic_pipeline_renders_and_exports_transcript(setup, monkeypatch):
+    import httpx
+    import json
+    from factory import transcription, semantic_highlights
+
+    client, ledger, tmp = setup
+    words = [{"start": float(i), "end": i + 0.8, "word": "Україна"} for i in range(30)]
+    transcript = {
+        "provider": "test-speech",
+        "model": "fixture",
+        "language": "uk",
+        "words": words,
+        "segments": [{"start": 0.0, "end": 30.0, "text": "Власний тестовий матеріал."}],
+        "text": "Власний тестовий матеріал.",
+    }
+    monkeypatch.setattr(transcription, "transcribe", lambda *args, **kwargs: transcript)
+    real = semantic_highlights.rank
+    response = {
+        "candidates": [
+            {
+                "candidate_id": 0,
+                "title": "Момент",
+                "reason": "Завершений фрагмент",
+                "confidence": 0.8,
+                "score": 80,
+            }
+        ]
+    }
+    with httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"response": json.dumps(response)})
+        )
+    ) as http:
+        monkeypatch.setattr(
+            semantic_highlights,
+            "rank",
+            lambda *args, **kwargs: real(*args, **kwargs, http=http),
+        )
+        job = submit(
+            client,
+            fixture_video(tmp / "semantic.mp4", 30),
+            parts=5,
+            split_strategy="semantic",
+        )
+        drain(client)
+    status = client.get(f"/api/v1/clips/jobs/{job}").json()
+    assert status["state"] == "COMPLETE", status
+    manifest = client.get(f"/api/v1/clips/jobs/{job}/manifest").json()
+    assert len(manifest["parts"]) == 1 and manifest["analysis"] == "ollama"
+    assert manifest["language"] == "uk" and set(manifest["transcript"]) == {
+        "json",
+        "srt",
+        "vtt",
+    }
+    for key in manifest["transcript"].values():
+        assert storage.verified(key).stat().st_size > 0
+
+
+def test_longs_manual_assembly_is_playable(setup):
+    client, _, tmp = setup
+    job = submit(
+        client,
+        fixture_video(tmp / "longs-source.mp4", 6),
+        parts=1,
+        split_strategy="manual",
+        captions=False,
+        long_intervals=[{"start": 0, "end": 2}, {"start": 4, "end": 6}],
+        output={
+            "aspect_ratio": "16:9",
+            "resolution": "1280x720",
+            "preset": "ultrafast",
+        },
+    )
+    drain(client)
+    status = client.get(f"/api/v1/clips/jobs/{job}").json()
+    assert status["state"] == "COMPLETE", status
+    manifest = client.get(f"/api/v1/clips/jobs/{job}/manifest").json()
+    part = manifest["parts"][0]
+    assert (part["width"], part["height"]) == (1280, 720)
+    assert part["duration"] == pytest.approx(4, abs=0.12)
+    assert part["audio_codec"] == "aac" and part["intervals"] == [
+        {"start": 0.0, "end": 2.0},
+        {"start": 4.0, "end": 6.0},
+    ]

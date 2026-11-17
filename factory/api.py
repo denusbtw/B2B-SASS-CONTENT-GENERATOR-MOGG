@@ -74,7 +74,37 @@ def submit(body: BatchInput):
     rejected = []
     for index, item in enumerate(body.jobs):
         try:
-            accepted.append(JobSpec.model_validate(item).model_dump(mode="json"))
+            spec = JobSpec.model_validate(item)
+            if os.getenv("CLIPS_ONLY", "false").lower() == "true" and (
+                spec.mode != "CLIPS" or not spec.source
+            ):
+                rejected.append(
+                    {
+                        "index": index,
+                        "errors": [
+                            {
+                                "msg": "Only real video CLIPS are enabled in this deployment"
+                            }
+                        ],
+                    }
+                )
+                continue
+            if (
+                os.getenv("CLIPS_ONLY", "false").lower() == "true"
+                and not spec.rights_pass
+            ):
+                rejected.append(
+                    {
+                        "index": index,
+                        "errors": [
+                            {
+                                "msg": "Confirm source reuse rights and provide evidence before generating clips"
+                            }
+                        ],
+                    }
+                )
+                continue
+            accepted.append(spec.model_dump(mode="json"))
             indexes.append(index)
         except ValidationError as exc:
             rejected.append(

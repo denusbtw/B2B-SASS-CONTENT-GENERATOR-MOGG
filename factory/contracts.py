@@ -18,17 +18,26 @@ class Mode(StrEnum):
 
 
 class ClipSource(Contract):
-    type: Literal["youtube", "local_file"]
+    type: Literal["youtube", "twitch", "local_file"]
     url: str | None = None
     artifact_id: str | None = None
     authorized: bool = False
+    quality: Literal["480", "720", "1080"] = "720"
+    start_seconds: float = Field(default=0, ge=0, allow_inf_nan=False)
+    end_seconds: float | None = Field(default=1800, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def valid_interval(self):
+        if self.end_seconds is not None and self.end_seconds <= self.start_seconds:
+            raise ValueError("Source interval end must follow start")
+        return self
 
     @model_validator(mode="after")
     def valid_source(self):
-        if self.type == "youtube":
-            from factory.ingestion import youtube_id
+        if self.type in {"youtube", "twitch"}:
+            from factory.ingestion import canonical_source
 
-            youtube_id(self.url or "")
+            canonical_source(self.url or "", self.type)
             if self.artifact_id or not self.authorized:
                 raise ValueError(
                     "YouTube requires explicit reuse authorization and URL only"
@@ -44,17 +53,48 @@ class ClipSource(Contract):
 
 class ClipOutput(Contract):
     format: Literal["mp4"] = "mp4"
-    aspect_ratio: Literal["9:16"] = "9:16"
-    resolution: Literal["1080x1920", "360x640"] = "1080x1920"
+    aspect_ratio: Literal["9:16", "16:9"] = "9:16"
+    resolution: Literal["1080x1920", "360x640", "1280x720", "1920x1080"] = "1080x1920"
     fps: Literal[24, 30] = 30
-    framing: Literal["center_crop", "blurred_background"] = "blurred_background"
+    framing: Literal["center_crop", "blurred_background", "gameplay_split"] = (
+        "blurred_background"
+    )
     preset: Literal["ultrafast", "veryfast", "fast", "medium", "slow"] = "veryfast"
     crf: int = Field(default=23, ge=16, le=35)
+    background_artifact_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    background_authorized: bool = False
+    split_ratio: float = Field(default=0.5, ge=0.3, le=0.7)
+
+    @model_validator(mode="after")
+    def background_rights(self):
+        width, height = map(int, self.resolution.split("x"))
+        if (width > height) != (self.aspect_ratio == "16:9"):
+            raise ValueError("Output resolution does not match aspect ratio")
+        if self.aspect_ratio == "16:9" and self.framing == "gameplay_split":
+            raise ValueError("Gameplay split is a Shorts preset")
+        if self.framing == "gameplay_split" and (
+            not self.background_artifact_id or not self.background_authorized
+        ):
+            raise ValueError(
+                "Gameplay split needs an authorized uploaded background file"
+            )
+        return self
 
 
 class ClipDrive(Contract):
     enabled: bool = True
     create_source_folder: Literal[True] = True
+
+
+class SourceInterval(Contract):
+    start: float = Field(ge=0, allow_inf_nan=False)
+    end: float = Field(gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.end <= self.start:
+            raise ValueError("Interval end must follow start")
+        return self
 
 
 class JobSpec(Contract):
@@ -65,9 +105,16 @@ class JobSpec(Contract):
     evidence: str = Field(default="", max_length=500)
     parts: int = Field(default=1, ge=1, le=50, strict=True)
     source: ClipSource | None = None
-    split_strategy: Literal["equal_duration", "highlights"] = "equal_duration"
+    split_strategy: Literal["equal_duration", "highlights", "semantic", "manual"] = (
+        "equal_duration"
+    )
     output: ClipOutput = Field(default_factory=ClipOutput)
     google_drive: ClipDrive = Field(default_factory=ClipDrive)
+    clip_min_seconds: int = Field(default=20, ge=20, le=60)
+    clip_max_seconds: int = Field(default=60, ge=20, le=60)
+    language_override: str | None = Field(default=None, pattern=r"^[a-z]{2,3}$")
+    captions: bool = True
+    long_intervals: list[SourceInterval] = Field(default_factory=list, max_length=20)
     stacked: bool = False
     synthetic_clip: bool = False
     provider: Literal["mock", "openai"] = "mock"
@@ -79,7 +126,30 @@ class JobSpec(Contract):
     def validate_live(self):
         if not self.source and "prompt" not in self.model_fields_set:
             raise ValueError("Prompt is required for non-source jobs")
-        if self.split_strategy == "highlights" and (not self.source or self.parts > 12):
+        if self.output.aspect_ratio == "16:9":
+            if (
+                not self.source
+                or self.parts != 1
+                or self.split_strategy != "manual"
+                or not self.long_intervals
+            ):
+                raise ValueError(
+                    "Longs need one output and manually selected intervals"
+                )
+            previous = 0.0
+            for interval in self.long_intervals:
+                if interval.start < previous:
+                    raise ValueError(
+                        "Long intervals must be disjoint and chronological"
+                    )
+                previous = interval.end
+        elif self.long_intervals or self.split_strategy == "manual":
+            raise ValueError("Manual interval assembly is only available for Longs")
+        if self.clip_min_seconds > self.clip_max_seconds:
+            raise ValueError("Minimum clip duration exceeds maximum")
+        if self.split_strategy in {"highlights", "semantic"} and (
+            not self.source or self.parts > 12
+        ):
             raise ValueError("Top moments require a real source and at most 12 clips")
         if self.source:
             if (

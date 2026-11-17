@@ -44,8 +44,28 @@ def archive_next(ledger, drive):
         save(folder_confirmed=1)
         files = row["files"]
         # Stable manifest bytes: Drive URLs are available through the API overlay.
-        assets = [(p["name"], p["sha256"], "video/mp4") for p in package["parts"]]
+        assets = [
+            (p["name"], p["sha256"], "video/mp4")
+            for p in package["parts"]
+            if not p.get("deleted")
+        ]
+        for part in package["parts"]:
+            if part.get("deleted"):
+                continue
+            for kind in ("ass", "srt"):
+                key = part.get("caption_" + kind)
+                if key:
+                    assets.append((f"part_{part['part']:02}.{kind}", key, "text/plain"))
         assets.append(("manifest.json", package["manifest_sha256"], "application/json"))
+        for kind, key in (package.get("transcript") or {}).items():
+            if kind in {"json", "srt", "vtt"}:
+                assets.append(
+                    (
+                        f"transcript.{kind}",
+                        key,
+                        "application/json" if kind == "json" else "text/plain",
+                    )
+                )
         for name, key, mime in assets:
             item = files.setdefault(name, {"sha256": key})
             if item.get("url"):

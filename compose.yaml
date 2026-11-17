@@ -7,6 +7,7 @@ x-database-env: &database-env
 
 x-youtube-env: &youtube-env
   PUBLISHER_PROVIDER: ${PUBLISHER_PROVIDER:-mock}
+  YOUTUBE_SOURCE_BACKEND: ${YOUTUBE_SOURCE_BACKEND:-drive}
   YOUTUBE_ENABLED: ${YOUTUBE_ENABLED:-false}
   YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
   YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
@@ -27,10 +28,17 @@ x-worker: &worker
       condition: service_healthy
   environment:
     WORKER_API_URL: http://api:8080
-    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    OPENAI_API_KEY: ""
     OPENAI_STORY_MODEL: ${OPENAI_STORY_MODEL:-gpt-6-luna}
     OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
     WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN:-factory-local-worker}
+    WHISPER_MODEL: ${WHISPER_MODEL:-small}
+    ASR_MODEL_ROOT: /app/data/models
+    OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+    OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+    OLLAMA_REQUEST_TIMEOUT: ${OLLAMA_REQUEST_TIMEOUT:-180}
+    CLIPS_SCRATCH_BUDGET_BYTES: ${CLIPS_SCRATCH_BUDGET_BYTES:-8589934592}
+    CLIPS_DISK_RESERVE_BYTES: ${CLIPS_DISK_RESERVE_BYTES:-4294967296}
     CLIPS_MAX_SOURCE_BYTES: ${CLIPS_MAX_SOURCE_BYTES:-2147483648}
     CLIPS_MAX_DURATION: ${CLIPS_MAX_DURATION:-7200}
     CLIPS_MIN_PART_SECONDS: ${CLIPS_MIN_PART_SECONDS:-1}
@@ -73,6 +81,10 @@ services:
       <<: [*database-env, *youtube-env]
       OPERATOR_TOKEN: ${OPERATOR_TOKEN:-factory-local-operator}
       WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN:-factory-local-worker}
+      CLIPS_ONLY: "true"
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       DRIVE_ARCHIVE_ENABLED: ${DRIVE_ARCHIVE_ENABLED:-false}
       CLIPS_MAX_SOURCE_BYTES: ${CLIPS_MAX_SOURCE_BYTES:-2147483648}
       ARTIFACT_MAX_BYTES: ${ARTIFACT_MAX_BYTES:-2147483648}
@@ -96,10 +108,15 @@ services:
   worker-a:
     <<: *worker
     command: ["python", "-m", "factory.generator", "--id", "compose-worker-a"]
+    volumes:
+      - asr-models:/app/data/models
 
   worker-b:
     <<: *worker
+    profiles: ["second-worker"]
     command: ["python", "-m", "factory.generator", "--id", "compose-worker-b"]
+    volumes:
+      - asr-models:/app/data/models
 
   publisher:
     <<: *app
@@ -107,7 +124,10 @@ services:
     restart: unless-stopped
     environment:
       <<: [*database-env, *youtube-env]
+      DRIVE_OAUTH_CLIENT_FILE: /run/drive-secrets/client.json
+      DRIVE_OAUTH_TOKEN_FILE: /run/drive-secrets/token.json
     volumes:
+      - ${DRIVE_SECRETS_DIR:-./data/drive-secrets}:/run/drive-secrets:ro
       - ./data/shared:/app/data/shared:ro
       - ${YOUTUBE_SECRETS_DIR:-./data/youtube-secrets}:/run/youtube-secrets:ro
     depends_on:
@@ -136,5 +156,17 @@ services:
       api:
         condition: service_healthy
 
+  ollama:
+    image: ollama/ollama:0.13.0
+    profiles: ["local-ai"]
+    environment:
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
 volumes:
+  asr-models:
+  ollama-models:
   factory-db:
